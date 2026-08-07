@@ -169,10 +169,13 @@ def doctor(verbose: bool) -> None:
         llm_table.add_column("Details", width=40)
 
         # Ollama
+        from src.core.llm_config import get_ollama_host
+
+        ollama_host = get_ollama_host()
         try:
             import urllib.request
 
-            req = urllib.request.Request("http://localhost:11434/api/tags")
+            req = urllib.request.Request(f"{ollama_host}/api/tags")
             resp = urllib.request.urlopen(req, timeout=3)
             import json as _json
 
@@ -181,13 +184,13 @@ def doctor(verbose: bool) -> None:
             llm_table.add_row(
                 "Ollama",
                 "[green]running[/green]",
-                f"{len(models)} models ({', '.join(coder_models[:3])})",
+                f"{len(models)} models ({', '.join(coder_models[:3])}) @ {ollama_host}",
             )
         except Exception:
             llm_table.add_row(
                 "Ollama",
                 "[yellow]offline[/yellow]",
-                "Install: https://ollama.com + ollama pull qwen2.5-coder:14b",
+                f"Checked {ollama_host} — install: https://ollama.com + ollama pull qwen2.5-coder:14b",
             )
 
         # Anthropic
