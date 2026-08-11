@@ -1514,7 +1514,7 @@ def audit_smart(
             console.print("[magenta]LLM validation[/magenta] enabled")
 
     # Define smart tool selection (core reliable tools)
-    smart_tools = ["slither", "aderyn", "mythril", "solhint"]
+    smart_tools = ["slither", "aderyn", "mythril", "solhint", "smartllm"]
 
     info(f"Tools: {', '.join(smart_tools)}")
 

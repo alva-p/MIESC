@@ -327,6 +327,7 @@ class TestTargetedScan:
         tools = agent._select_tools(recon)
         assert "slither" in tools
         assert "aderyn" in tools
+        assert "smartllm" in tools
         assert "mythril" in tools  # has_external_calls + has_selfdestruct
 
     def test_tool_selection_defi(self, agent):

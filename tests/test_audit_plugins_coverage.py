@@ -442,6 +442,7 @@ class TestAuditSmart:
         with patch(f"{AUDIT}.get_ml_orchestrator", return_value=orch):
             result = runner.invoke(audit, ["smart", str(contract), "-o", str(out)])
         assert result.exit_code == 0
+        assert "smartllm" in orch.analyze.call_args.kwargs["tools"]
         data = json.loads(out.read_text())
         assert data["llm_validated"] is False
 
