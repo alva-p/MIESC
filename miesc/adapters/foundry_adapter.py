@@ -21,6 +21,7 @@ Version: 1.0.0
 
 import json
 import logging
+import os
 import re
 import subprocess
 import time
@@ -85,6 +86,8 @@ class FoundryAdapter(ToolAdapter):
         self.config = config or {}
         self.test_pattern = self.config.get("test_pattern", "test/**/*.sol")
         self.fuzz_runs = self.config.get("fuzz_runs", 256)
+        self.fuzz_seed = self.config.get("fuzz_seed")
+        self.invariant_depth = self.config.get("invariant_depth", 100)
         self.gas_report = self.config.get("gas_report", True)
         self.coverage = self.config.get("coverage", False)
         self.timeout = self.config.get("timeout", 300)
@@ -192,6 +195,8 @@ class FoundryAdapter(ToolAdapter):
 
             # Add fuzz runs
             cmd.extend(["--fuzz-runs", str(self.fuzz_runs)])
+            if self.fuzz_seed:
+                cmd.extend(["--fuzz-seed", str(self.fuzz_seed)])
 
             # Add gas reporting
             if self.gas_report:
@@ -223,7 +228,16 @@ class FoundryAdapter(ToolAdapter):
 
             # Run forge test
             result = subprocess.run(
-                cmd, capture_output=True, timeout=self.timeout, text=True, cwd=project_root
+                cmd,
+                capture_output=True,
+                timeout=self.timeout,
+                text=True,
+                cwd=project_root,
+                env={
+                    **os.environ,
+                    "FOUNDRY_INVARIANT_RUNS": str(self.fuzz_runs),
+                    "FOUNDRY_INVARIANT_DEPTH": str(self.invariant_depth),
+                },
             )
 
             duration = time.time() - start_time
@@ -260,9 +274,7 @@ class FoundryAdapter(ToolAdapter):
             evidence_status = (
                 "counterexample"
                 if findings and (test_stats.get("calls", 0) > 0 or has_counterexample)
-                else "executed"
-                if test_stats.get("total", 0) > 0
-                else "inconclusive"
+                else "executed" if test_stats.get("total", 0) > 0 else "inconclusive"
             )
 
             response = {
@@ -278,6 +290,8 @@ class FoundryAdapter(ToolAdapter):
                 "evidence_status": evidence_status,
                 "gas_report": gas_report,
                 "fuzz_runs": self.fuzz_runs,
+                "fuzz_seed": self.fuzz_seed,
+                "invariant_depth": self.invariant_depth,
                 "dpga_compliant": True,
             }
             if error:
@@ -584,6 +598,8 @@ class FoundryAdapter(ToolAdapter):
         return {
             "test_pattern": "test/**/*.sol",
             "fuzz_runs": 256,
+            "fuzz_seed": None,
+            "invariant_depth": 100,
             "gas_report": True,
             "coverage": False,
             "timeout": 300,

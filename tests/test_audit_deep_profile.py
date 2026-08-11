@@ -37,7 +37,15 @@ def test_smart_audit_adds_foundry_for_foundry_projects(tmp_path):
     contract.write_text("pragma solidity ^0.8.20; contract Vault {}")
     (tmp_path / "foundry.toml").write_text('[profile.default]\nsrc = "src"\n')
 
-    assert "foundry" in _smart_audit_tools(str(contract))
+    tools = _smart_audit_tools(str(contract))
+    assert "foundry" in tools
+    assert "propertygpt" in tools
+
+
+def test_deep_audit_selects_property_generation_by_default():
+    from miesc.agents.deep_audit_agent import DeepAuditAgent, ReconResult
+
+    assert "propertygpt" in DeepAuditAgent()._select_tools(ReconResult())
 
 
 def test_deep_audit_cli_applies_profile_to_agent_config(monkeypatch, tmp_path):

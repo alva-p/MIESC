@@ -869,6 +869,22 @@ class TestFoundryAdapterComprehensive(TestAdapterBase):
             assert result["status"] == "inconclusive"
             assert result["evidence_status"] == "inconclusive"
 
+    def test_analyze_passes_reproducible_fuzz_seed(self, temp_contract):
+        """Generated campaigns must be replayable with the reported seed."""
+        from miesc.adapters.foundry_adapter import FoundryAdapter
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0, stdout='{"test_results": {}}', stderr=""
+            )
+            FoundryAdapter({"fuzz_seed": "0x1234", "fuzz_runs": 32}).analyze(temp_contract)
+
+        assert any("--fuzz-seed" in call.args[0] for call in mock_run.call_args_list)
+        test_call = next(
+            call for call in mock_run.call_args_list if call.args[0][:2] == ["forge", "test"]
+        )
+        assert test_call.kwargs["env"]["FOUNDRY_INVARIANT_RUNS"] == "32"
+
     def test_is_available_check(self):
         """Test forge availability check."""
         from miesc.adapters.foundry_adapter import FoundryAdapter

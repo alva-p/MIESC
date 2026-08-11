@@ -544,7 +544,7 @@ class DeepAuditAgent(BaseAgent):
 
     def _select_tools(self, recon: ReconResult) -> List[str]:
         """Adaptively select tools based on risk profile."""
-        tools = ["slither", "aderyn", "smartllm"]
+        tools = ["slither", "aderyn", "smartllm", "propertygpt"]
         profile = recon.risk_profile
 
         if profile.get("is_defi"):
