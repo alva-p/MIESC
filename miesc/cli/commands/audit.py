@@ -81,7 +81,7 @@ def _profile_uses_agentic_path(profile: Dict[str, Any]) -> bool:
 
 def _smart_audit_tools(contract: str) -> List[str]:
     """Add dynamic testing when the target is already a Foundry project."""
-    tools = ["slither", "aderyn", "mythril", "solhint", "smartllm"]
+    tools = ["slither", "aderyn", "mythril", "solhint", "smartllm", "propertygpt"]
     try:
         from miesc.core.framework_detector import is_foundry_project
 
