@@ -1007,7 +1007,8 @@ def test_apply_validation_updates_or_filters_findings(
     updated = validator._apply_validation(finding, validation)
 
     if filtered:
-        assert updated is None
+        assert updated["status"] == "filtered_fp"
+        assert updated["_llm_validation"]["reasoning"] == validation.reasoning
         return
 
     assert updated is not finding
@@ -1295,7 +1296,7 @@ def test_get_statistics_defaults_malformed_counter_state():
 
 @pytest.mark.asyncio
 async def test_validate_finding_success_updates_counters(monkeypatch):
-    validator = LLMFindingValidator(ValidatorConfig())
+    validator = LLMFindingValidator(ValidatorConfig(confirm_false_positives=False))
 
     async def fake_call(prompt):
         assert "External call before state update" in prompt
@@ -1406,6 +1407,7 @@ async def test_validate_findings_batch_applies_results_and_preserves_unvalidated
     assert seen_contexts == [("A", "contract A {}"), ("B", "contract B {}")]
     assert [validation.finding_id for validation in validations] == ["A", "B"]
     assert [finding["id"] for finding in validated] == ["A", "C"]
+    assert [finding["id"] for finding in validator.filtered_out_findings] == ["B"]
     assert validated[0]["confidence"] == pytest.approx(0.75)
     assert validated[0]["_llm_validation"]["result"] == "valid"
 

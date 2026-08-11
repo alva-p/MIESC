@@ -643,7 +643,12 @@ class DeepAuditAgent(BaseAgent):
             # code_contexts dict (NOT raw source) — pass findings and use defaults.
             filtered, _removed, _stats = fp.filter_findings(findings)
             return filtered
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "FP filter failed; keeping all %d findings unfiltered: %s",
+                len(findings),
+                exc,
+            )
             return findings
 
     # -----------------------------------------------------------------------

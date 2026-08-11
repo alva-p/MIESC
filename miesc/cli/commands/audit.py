@@ -1466,12 +1466,19 @@ def audit_layer(layer_num: int, contract: str, output: str | None, timeout: int)
 @click.option(
     "--llm-validate/--no-llm-validate", default=False, help="Use LLM to validate findings"
 )
+@click.option(
+    "--validator-model",
+    type=click.Choice(["ollama", "claude-code", "codex"], case_sensitive=False),
+    default="ollama",
+    help="Validator backend: local Ollama or an authenticated Claude Code/Codex CLI",
+)
 def audit_smart(
     contract: str,
     output: str | None,
     fmt: str,
     timeout: int,
     llm_validate: bool,
+    validator_model: str,
 ) -> None:
     """Smart audit with ML filtering, correlation, and optional LLM validation.
 
@@ -1539,15 +1546,22 @@ def audit_smart(
 
     # Optional LLM validation
     if llm_validate and result.ml_filtered_findings:
-        info("Running LLM validation on findings...")
+        provider = {
+            "ollama": "ollama",
+            "claude-code": "claude_code",
+            "codex": "codex_cli",
+        }[validator_model.lower()]
+        info(f"Running LLM validation on findings ({validator_model})...")
         try:
             from miesc.llm.finding_validator import LLMFindingValidator, ValidatorConfig
 
             validator_config = ValidatorConfig(
                 min_severity_to_validate="medium",
                 timeout_seconds=60,
+                provider=provider,
             )
             validator = LLMFindingValidator(validator_config)
+            llm_candidates = list(result.ml_filtered_findings)
 
             import asyncio
 
@@ -1559,13 +1573,20 @@ def audit_smart(
                 return validated, validations
 
             validated_findings, validations = asyncio.run(validate())
+            filtered_out = getattr(validator, "filtered_out_findings", None)
+            if not isinstance(filtered_out, list):
+                filtered_out = [
+                    finding for finding in llm_candidates if finding not in validated_findings
+                ]
 
-            # Update result with LLM validation
-            llm_fp_count = len(result.ml_filtered_findings) - len(validated_findings)
-            if llm_fp_count > 0:
-                info(f"LLM filtered {llm_fp_count} additional false positives")
+            if filtered_out:
+                info(f"LLM filtered {len(filtered_out)} additional false positives")
                 result.ml_filtered_findings = validated_findings
-                result.false_positives_removed += llm_fp_count
+                result.ml_filtered_out = [
+                    *getattr(result, "ml_filtered_out", []),
+                    *filtered_out,
+                ]
+                result.false_positives_removed += len(filtered_out)
 
         except Exception as e:
             warning(f"LLM validation failed: {e}")
@@ -1617,12 +1638,23 @@ def audit_smart(
                 console.print(
                     f"  [{color}][{sev}][/{color}] {vtype} - {loc.get('file', '')}:{loc.get('line', 0)}"
                 )
+
+        discarded = getattr(result, "ml_filtered_out", [])
+        if discarded:
+            console.print(f"\n[dim]Discarded ({len(discarded)}):[/dim]")
+            for finding in discarded[:5]:
+                finding_type = finding.get("type", finding.get("title", "unknown"))
+                reason = finding.get("_llm_validation", {}).get("reasoning", "")[:100]
+                console.print(f"  [dim]· {finding_type} — {reason}[/dim]")
     else:
         print("\n=== Smart Audit Results ===")
         print(f"Risk Level: {summary['risk_level']}")
         print(f"Total: {summary['total_findings']}")
         print(f"Critical: {summary['critical']}, High: {summary['high']}")
         print(f"FPs removed: {result.false_positives_removed}")
+        discarded = getattr(result, "ml_filtered_out", [])
+        if discarded:
+            print(f"Discarded: {len(discarded)} (see JSON output for reasoning)")
 
     # Save output
     if output:

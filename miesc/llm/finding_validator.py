@@ -167,6 +167,9 @@ class ValidatorConfig:
     min_severity_to_validate: str = "medium"  # Only validate >= this severity
     batch_size: int = 5
     enabled: bool = True
+    provider: str = "ollama"
+    cli_model: Optional[str] = None
+    confirm_false_positives: bool = True
 
 
 class LLMFindingValidator:
@@ -214,6 +217,26 @@ Respond ONLY with a valid JSON object (no markdown, no extra text):
     "reasoning": "Brief explanation of your analysis (1-2 sentences)",
     "suggested_severity": "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "INFO" | null,
     "remediation_hint": "Brief fix suggestion if valid" or null
+}}"""
+
+    CONFIRMATION_PROMPT = """A first reviewer marked this finding as a false positive. Independently look for a reason it could still be exploitable; do not simply agree.
+
+Finding: {finding_type} at {file}:{line}
+Message: {message}
+
+Code context:
+```solidity
+{code_snippet}
+```
+
+First reviewer's reasoning:
+{first_reasoning}
+
+Respond ONLY with this JSON object:
+{{
+    "confirms_false_positive": true or false,
+    "confidence": 0.0 to 1.0,
+    "reasoning": "Brief explanation"
 }}"""
 
     # Severity order for filtering
@@ -278,6 +301,13 @@ Respond ONLY with a valid JSON object (no markdown, no extra text):
             self.config.batch_size = default_config.batch_size
         if not isinstance(self.config.enabled, bool):
             self.config.enabled = default_config.enabled
+        if not isinstance(self.config.confirm_false_positives, bool):
+            self.config.confirm_false_positives = default_config.confirm_false_positives
+        provider = self._config_text(self.config, "provider", default_config.provider).lower()
+        self.config.provider = (
+            provider if provider in {"ollama", "claude_code", "codex_cli"} else "ollama"
+        )
+        self.config.cli_model = self._safe_model_name(self.config.cli_model) or None
         if isinstance(self.config.min_severity_to_validate, str):
             min_severity = self.config.min_severity_to_validate.strip().lower()
         else:
@@ -290,9 +320,13 @@ Respond ONLY with a valid JSON object (no markdown, no extra text):
         self._session: Optional[aiohttp.ClientSession] = None
         self._validated_count = 0
         self._fp_detected_count = 0
+        self.filtered_out_findings: List[Dict[str, Any]] = []
 
         logger.info(
-            f"LLM Validator initialized: model={self.config.model}, host={self.config.ollama_host}"
+            "LLM Validator initialized: provider=%s, model=%s, host=%s",
+            self.config.provider,
+            self.config.cli_model or self.config.model,
+            self.config.ollama_host,
         )
 
     async def _get_session(self) -> aiohttp.ClientSession:
@@ -310,7 +344,16 @@ Respond ONLY with a valid JSON object (no markdown, no extra text):
             await self._session.close()
 
     async def is_available(self) -> bool:
-        """Check if Ollama is available and the model is loaded."""
+        """Check whether the configured provider is available."""
+        if self.config.provider == "claude_code":
+            from miesc.llm.cli_subscription import check_claude_cli
+
+            return check_claude_cli()
+        if self.config.provider == "codex_cli":
+            from miesc.llm.cli_subscription import check_codex_cli
+
+            return check_codex_cli()
+
         try:
             session = await self._get_session()
             async with session.get(f"{self._safe_ollama_host()}/api/tags") as resp:
@@ -420,11 +463,17 @@ Respond ONLY with a valid JSON object (no markdown, no extra text):
                 contract_context=contract_snippet,
             )
 
-            # Call Ollama API
-            response = await self._call_ollama(prompt)
+            response = await self._call_llm(prompt)
 
             # Parse response
             validation = self._parse_response(response, finding_id)
+            if (
+                validation.result == ValidationResult.FALSE_POSITIVE
+                and self.config.confirm_false_positives
+            ):
+                validation = await self._confirm_false_positive(
+                    safe_finding, validation, code_snippet
+                )
             validation.validation_time_ms = self._parse_nonnegative_int(
                 int((time.time() - start_time) * 1000)
             )
@@ -452,6 +501,90 @@ Respond ONLY with a valid JSON object (no markdown, no extra text):
                     int((time.time() - start_time) * 1000)
                 ),
             )
+
+    async def _call_llm(self, prompt: str) -> str:
+        """Dispatch validation to Ollama or a subscription-authenticated CLI."""
+        if self.config.provider == "claude_code":
+            from miesc.llm.cli_subscription import call_claude_cli
+
+            return await asyncio.to_thread(
+                call_claude_cli,
+                prompt,
+                model=self.config.cli_model or "sonnet",
+                timeout=int(self.config.timeout_seconds),
+            )
+        if self.config.provider == "codex_cli":
+            from miesc.llm.cli_subscription import call_codex_cli
+
+            return await asyncio.to_thread(
+                call_codex_cli,
+                prompt,
+                model=self.config.cli_model,
+                timeout=int(self.config.timeout_seconds),
+            )
+        return await self._call_ollama(prompt)
+
+    async def _confirm_false_positive(
+        self,
+        finding: Dict[str, Any],
+        first_validation: LLMValidation,
+        code_context: str,
+    ) -> LLMValidation:
+        """Require a second independent pass before filtering a finding."""
+        location = _safe_mapping_get(finding, "location", {})
+        if not isinstance(location, dict):
+            location = {}
+        prompt = self.CONFIRMATION_PROMPT.format(
+            finding_type=self._parse_text(_safe_mapping_get(finding, "type"), "unknown"),
+            file=self._parse_text(_safe_mapping_get(location, "file"), "unknown"),
+            line=self._parse_location_line(_safe_mapping_get(location, "line")),
+            message=self._parse_text(
+                _safe_mapping_get(finding, "message"),
+                self._parse_text(_safe_mapping_get(finding, "description"), "No message"),
+            ),
+            code_snippet=self._prompt_text(code_context, limit=1500) or "Not available",
+            first_reasoning=first_validation.reasoning,
+        )
+
+        try:
+            response = await self._call_llm(prompt)
+            json_text = extract_json_from_text(response)
+            if not json_text:
+                raise ValueError("No JSON found in confirmation response")
+            data = json.loads(repair_common_json_errors(json_text))
+            if not isinstance(data, dict):
+                raise ValueError("Confirmation response must be an object")
+            confirms = _safe_mapping_get(data, "confirms_false_positive")
+            if not isinstance(confirms, bool):
+                raise ValueError("confirms_false_positive must be boolean")
+            confidence = self._parse_confidence(
+                _safe_mapping_get(data, "confidence"), first_validation.confidence
+            )
+            second_reasoning = self._parse_text(
+                _safe_mapping_get(data, "reasoning"), "No reasoning provided"
+            )
+        except VALIDATOR_RUNTIME_ERRORS as exc:
+            reason = self._exception_reason(exc)
+            logger.warning("FP confirmation failed for %s: %s", first_validation.finding_id, reason)
+            return replace(
+                first_validation,
+                result=ValidationResult.LIKELY_FP,
+                confidence=first_validation.confidence * 0.7,
+                reasoning=(
+                    f"{first_validation.reasoning} | Second pass failed ({reason}); "
+                    "not confirmed"
+                ),
+            )
+
+        result = ValidationResult.FALSE_POSITIVE if confirms else ValidationResult.LIKELY_FP
+        return replace(
+            first_validation,
+            result=result,
+            confidence=(
+                min(confidence, first_validation.confidence) if confirms else confidence * 0.6
+            ),
+            reasoning=f"{first_validation.reasoning} | Second pass: {second_reasoning}",
+        )
 
     async def _call_ollama(self, prompt: str) -> str:
         """Call Ollama API and return response."""
@@ -551,13 +684,24 @@ Respond ONLY with a valid JSON object (no markdown, no extra text):
             if isinstance(is_valid, bool) and result_str not in result_map:
                 result = ValidationResult.VALID if is_valid else ValidationResult.LIKELY_FP
 
+            reasoning = self._parse_text(_safe_mapping_get(data, "reasoning"), "")
+            if result == ValidationResult.FALSE_POSITIVE and not reasoning:
+                logger.warning(
+                    "LLM verdict for %s has no reasoning; treating it as uncertain",
+                    finding_id,
+                )
+                result = ValidationResult.UNCERTAIN
+                reasoning = (
+                    "Malformed verdict: false_positive with no reasoning, treated as uncertain"
+                )
+            elif not reasoning:
+                reasoning = "No reasoning provided"
+
             return LLMValidation(
                 finding_id=finding_id,
                 result=result,
                 confidence=self._parse_confidence(_safe_mapping_get(data, "confidence", 0.5)),
-                reasoning=self._parse_text(
-                    _safe_mapping_get(data, "reasoning"), "No reasoning provided"
-                )[:2000],
+                reasoning=reasoning[:2000],
                 suggested_severity=self._parse_suggested_severity(
                     _safe_mapping_get(data, "suggested_severity")
                 ),
@@ -812,6 +956,7 @@ Respond ONLY with a valid JSON object (no markdown, no extra text):
         Returns:
             Tuple of (validated_findings, validations)
         """
+        self.filtered_out_findings = []
         if not self._config_enabled(self.config):
             return findings, []
         if not isinstance(findings, list):
@@ -888,7 +1033,9 @@ Respond ONLY with a valid JSON object (no markdown, no extra text):
 
                     # Update finding based on validation
                     updated_finding = self._apply_validation(finding, validation)
-                    if updated_finding:  # None means filtered out
+                    if updated_finding.get("status") == "filtered_fp":
+                        self.filtered_out_findings.append(updated_finding)
+                    else:
                         validated_findings.append(updated_finding)
 
         # Add findings that didn't need validation
@@ -918,11 +1065,11 @@ Respond ONLY with a valid JSON object (no markdown, no extra text):
         self,
         finding: Dict[str, Any],
         validation: LLMValidation,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> Dict[str, Any]:
         """
         Apply validation result to finding.
 
-        Returns None if finding should be filtered out.
+        Confirmed false positives remain available with ``status=filtered_fp``.
         """
         result = self._safe_getattr(validation, "result", ValidationResult.UNCERTAIN)
         if not isinstance(result, ValidationResult):
@@ -939,11 +1086,6 @@ Respond ONLY with a valid JSON object (no markdown, no extra text):
             self._safe_getattr(validation, "validation_time_ms", 0)
         )
 
-        # Filter out confirmed false positives
-        if result == ValidationResult.FALSE_POSITIVE:
-            logger.debug("Filtering FP: %s", _safe_mapping_get(finding, "id"))
-            return None
-
         # Create updated finding
         try:
             updated = finding.copy() if isinstance(finding, dict) else {}
@@ -958,6 +1100,12 @@ Respond ONLY with a valid JSON object (no markdown, no extra text):
             "suggested_severity": suggested_severity,
             "validation_time_ms": validation_time_ms,
         }
+
+        if result == ValidationResult.FALSE_POSITIVE:
+            logger.debug("Filtering FP: %s — %s", _safe_mapping_get(finding, "id"), reasoning)
+            updated["status"] = "filtered_fp"
+            updated["confidence"] = confidence
+            return updated
 
         # Adjust confidence based on validation
         original_confidence = self._parse_confidence(

@@ -79,6 +79,7 @@ class MLAnalysisResult:
                 "false_positives_removed": self.false_positives_removed,
                 "severity_adjustments": self.severity_adjustments,
                 "top_findings": self.ml_filtered_findings[:10],
+                "filtered_out": self.ml_filtered_out,
             },
             "clusters": {
                 "count": self.cluster_count,
