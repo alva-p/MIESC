@@ -25,6 +25,20 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   that weights findings by severity × calibrated confidence, plus a shareable badge
   (`--badge svg|json|markdown`; the SVG is self-contained). Scores a contract path
   or an existing scan/audit report; `--fail-under N` gates CI on the score.
+- **Security-score regression gate.** `miesc score --against <baseline> --fail-on-regression`
+  (with `--tolerance`) fails CI when the score drops versus a prior results or score
+  JSON — a relative gate alongside the absolute `--fail-under`, the security analogue
+  of a coverage-regression gate.
+- **Counterexample → Foundry PoC.** Formal verification now turns each prover
+  counterexample into an executable-shaped reproduction. The witness is parsed into
+  structured `name = value` bindings (raw text preserved), and
+  `miesc verify <contract> --poc <dir>` writes one Foundry test scaffold per
+  counterexample — laying the inputs into typed, compile-valid Solidity locals with
+  the type inferred from the prover's variable naming (`p_amount_uint256` →
+  `uint256 amount`). Values that are not literals (e.g. `2**256 - 1`) fall back to a
+  safe default with the raw value kept in a comment, so the scaffold always compiles.
+  `--poc-check` optionally runs `forge build` on each scaffold to confirm it compiles
+  (strictly best-effort; skipped when forge is unavailable, so CI is never affected).
 
 ## [6.0.0] - 2026-07-12
 

@@ -68,6 +68,18 @@ def _find_foundry_root(start: Path) -> Optional[Path]:
     default=None,
     help="Write the unified verification report as SARIF 2.1.0 (GitHub code scanning).",
 )
+@click.option(
+    "--poc",
+    type=click.Path(),
+    default=None,
+    help="Write a Foundry PoC test scaffold per counterexample into this directory.",
+)
+@click.option(
+    "--poc-check",
+    is_flag=True,
+    help="With --poc: run 'forge build' on each scaffold to confirm it compiles "
+    "(best-effort; skipped when forge is not installed).",
+)
 @click.option("--quiet", "-q", is_flag=True, help="Minimal output")
 def verify(
     contract_path: str,
@@ -77,6 +89,8 @@ def verify(
     timeout: int,
     output: str | None,
     sarif: str | None,
+    poc: str | None,
+    poc_check: bool,
     quiet: bool,
 ) -> None:
     """Run formal-verification provers against a contract.
@@ -238,6 +252,27 @@ def verify(
     if sarif:
         report.to_sarif(sarif)
         success(f"SARIF report written to {sarif}")
+
+    # Write a Foundry PoC test scaffold per counterexample
+    if poc:
+        scaffolds = report.foundry_scaffolds(contract_name)
+        poc_dir = Path(poc)
+        poc_dir.mkdir(parents=True, exist_ok=True)
+        for filename, solidity in scaffolds:
+            (poc_dir / filename).write_text(solidity, encoding="utf-8")
+        success(f"Wrote {len(scaffolds)} PoC scaffold(s) to {poc}")
+
+        # Optionally confirm each scaffold compiles with forge (best-effort)
+        if poc_check:
+            from miesc.formal.poc_check import check_scaffolds_compile
+
+            repo_dir = str(Path(contract_path).resolve().parent)
+            checks = check_scaffolds_compile(scaffolds, repo_dir, contract_path)
+            for c in checks:
+                icon = {"compiled": "✓", "failed": "✗", "skipped": "-"}.get(c["status"], "?")
+                console.print(f"    {icon} {c['filename']}: {c['status']}")
+    elif poc_check:
+        info("--poc-check has no effect without --poc.")
 
     # Exit code: 1 if any prover reported failures
     any_failed = any(r.status == "failed" for r in results.values())

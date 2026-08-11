@@ -29,7 +29,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from miesc.core.exporters import Finding, SARIFExporter
 
@@ -108,6 +108,17 @@ class Counterexample:
             "source_line": self.source_line,
             "linked_finding_id": self.linked_finding_id,
         }
+
+    def to_foundry_scaffold(self, contract_name: str = "Target") -> str:
+        """Render a Foundry test scaffold that reproduces this counterexample.
+
+        Lays the parsed ``assignments`` into typed locals with their exact values
+        and marks the deploy/call/assert to complete. Imported lazily to avoid a
+        module cycle.
+        """
+        from miesc.formal.counterexample_poc import counterexample_to_foundry_test
+
+        return counterexample_to_foundry_test(self, contract_name=contract_name)
 
     @classmethod
     def from_text(cls, prover: str, text: str) -> "Counterexample":
@@ -311,6 +322,22 @@ class UnifiedVerificationReport:
 
             Path(output_path).write_text(text, encoding="utf-8")
         return text
+
+    def foundry_scaffolds(self, contract_name: str = "Target") -> List[Tuple[str, str]]:
+        """Build a Foundry PoC scaffold for every counterexample across all provers.
+
+        Returns ``(filename, solidity)`` pairs and does no I/O, so the caller decides
+        where to write them. Filenames are unique (``<Contract>_<prover>_cx<n>.t.sol``).
+        """
+        base = re.sub(r"[^A-Za-z0-9]", "", contract_name) or "Target"
+        scaffolds: List[Tuple[str, str]] = []
+        counter = 0
+        for prover in self.provers:
+            for cex in prover.counterexamples:
+                counter += 1
+                filename = f"{base}_{cex.prover}_cx{counter}.t.sol"
+                scaffolds.append((filename, cex.to_foundry_scaffold(base)))
+        return scaffolds
 
     def to_sarif(self, output_path: Optional[str] = None) -> str:
         """Map violated properties / counterexamples to SARIF 2.1.0.
