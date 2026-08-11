@@ -11,6 +11,8 @@ import concurrent.futures
 import glob as glob_module
 import json
 import logging
+import os
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -46,6 +48,72 @@ if RICH_AVAILABLE:
     from rich.table import Table
 
 logger = logging.getLogger(__name__)
+
+
+def _save_foundry_harness(
+    result: Any, contract: str, destination: Path
+) -> tuple[Path, Path] | None:
+    """Export a validated PropertyGPT harness and its replay metadata."""
+    campaign = next(
+        (
+            finding.get("foundry_campaign")
+            for finding in result.raw_findings
+            if isinstance(finding.get("foundry_campaign"), dict)
+        ),
+        None,
+    )
+    if not campaign or campaign.get("status") not in {"passed", "counterexample"}:
+        warning("No validated Foundry harness was produced")
+        return None
+
+    harness = campaign.get("harness")
+    if not isinstance(harness, str) or not harness.strip():
+        warning("No validated Foundry harness was produced")
+        return None
+
+    destination.mkdir(parents=True, exist_ok=True)
+    harness_path = destination / "MIESCGeneratedInvariant.t.sol"
+    metadata_path = destination / "MIESCGeneratedInvariant.json"
+    existing = [path.name for path in (harness_path, metadata_path) if path.exists()]
+    if existing:
+        raise click.ClickException(f"Refusing to overwrite: {', '.join(existing)}")
+
+    relative_contract = Path(os.path.relpath(Path(contract).resolve(), destination.resolve()))
+    contract_import = relative_contract.as_posix()
+    if not contract_import.startswith("."):
+        contract_import = f"./{contract_import}"
+    exported_harness, replacements = re.subn(
+        r'(?<=["\'])@repo/[^"\']+(?=["\'])', contract_import, harness, count=1
+    )
+    if replacements != 1:
+        raise click.ClickException("Generated harness has no @repo contract import")
+
+    metadata = {
+        key: campaign.get(key)
+        for key in (
+            "status",
+            "compiled",
+            "repairs_used",
+            "tests_run",
+            "tests_passed",
+            "tests_failed",
+            "calls_executed",
+            "seed",
+            "counterexamples",
+            "coverage",
+        )
+    }
+    metadata.update(
+        {
+            "contract": contract_import,
+            "harness": harness_path.name,
+        }
+    )
+    harness_path.write_text(exported_harness, encoding="utf-8")
+    metadata_path.write_text(json.dumps(metadata, indent=2, default=str) + "\n", encoding="utf-8")
+    success(f"Foundry harness saved to {harness_path}")
+    success(f"Replay metadata saved to {metadata_path}")
+    return harness_path, metadata_path
 
 
 def _apply_deep_profile_config(config: Any, profile_name: str | None) -> tuple[Any, Dict[str, Any]]:
@@ -1474,6 +1542,11 @@ def audit_layer(layer_num: int, contract: str, output: str | None, timeout: int)
 @audit.command("smart")
 @click.argument("contract", type=click.Path(exists=True))
 @click.option("--output", "-o", type=click.Path(), help="Output file path")
+@click.option(
+    "--save-harness",
+    type=click.Path(file_okay=False, path_type=Path),
+    help="Save the validated Foundry harness and replay metadata in this directory",
+)
 @click.option("--format", "-f", "fmt", type=click.Choice(["json", "markdown"]), default="json")
 @click.option("--timeout", "-t", type=int, default=300, help="Timeout per tool in seconds")
 @click.option(
@@ -1488,6 +1561,7 @@ def audit_layer(layer_num: int, contract: str, output: str | None, timeout: int)
 def audit_smart(
     contract: str,
     output: str | None,
+    save_harness: Path | None,
     fmt: str,
     timeout: int,
     llm_validate: bool,
@@ -1506,6 +1580,7 @@ def audit_smart(
         miesc audit smart contract.sol                    # Smart audit
         miesc audit smart contract.sol --llm-validate    # With LLM validation
         miesc audit smart contract.sol -o report.json    # Save report
+        miesc audit smart contract.sol --save-harness test/generated
     """
     print_banner()
     info(f"Smart audit of {contract}")
@@ -1518,6 +1593,8 @@ def audit_smart(
         info("Falling back to basic audit...")
         # Fall back to basic
         _run_full_audit_basic(contract, output, fmt, [1, 2, 3], timeout)
+        if save_harness:
+            warning("No validated Foundry harness was produced")
         return
 
     if RICH_AVAILABLE:
@@ -1668,6 +1745,9 @@ def audit_smart(
         discarded = getattr(result, "ml_filtered_out", [])
         if discarded:
             print(f"Discarded: {len(discarded)} (see JSON output for reasoning)")
+
+    if save_harness:
+        _save_foundry_harness(result, contract, save_harness)
 
     # Save output
     if output:
