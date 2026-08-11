@@ -116,11 +116,17 @@ if RICH_AVAILABLE:
             "qwen32b",
             "qwen14b",
             "codellama",
+            "claude-code",
+            "claude-code-opus",
+            "codex",
         ],
         case_sensitive=False,
     ),
     default=None,
-    help="Use frontier LLM for deep semantic analysis (requires API key)",
+    help=(
+        "Use a frontier LLM. claude/gpt require an API key; claude-code/codex "
+        "use the corresponding CLI subscription login"
+    ),
 )
 @click.option(
     "--deep",
@@ -494,6 +500,9 @@ def scan(
                     "qwen32b": ("ollama", "qwen2.5-coder:32b"),
                     "qwen14b": ("ollama", "qwen2.5-coder:14b"),
                     "codellama": ("ollama", "codellama:13b"),
+                    "claude-code": ("claude_code", "sonnet"),
+                    "claude-code-opus": ("claude_code", "opus"),
+                    "codex": ("codex_cli", None),
                 }
                 provider, model_id = provider_map.get(frontier_model.lower(), ("auto", None))
                 # DeepSeek exposes an OpenAI-compatible API. Point the OpenAI
@@ -738,6 +747,9 @@ def scan(
                 "qwen32b": ("ollama", "qwen2.5-coder:32b"),
                 "qwen14b": ("ollama", "qwen2.5-coder:14b"),
                 "codellama": ("ollama", "codellama:13b"),
+                "claude-code": ("claude_code", "sonnet"),
+                "claude-code-opus": ("claude_code", "opus"),
+                "codex": ("codex_cli", None),
             }
             provider, model_id = provider_map.get(frontier_model.lower(), ("auto", None))
             # DeepSeek V4 is OpenAI-compatible: point the OpenAI client at the

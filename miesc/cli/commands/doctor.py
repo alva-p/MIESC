@@ -9,6 +9,7 @@ License: AGPL-3.0
 
 import asyncio
 import os
+import shutil
 import subprocess
 
 import click
@@ -208,6 +209,32 @@ def doctor(verbose: bool) -> None:
         # DeepSeek
         deepseek_status, deepseek_details = _deepseek_doctor_status()
         llm_table.add_row("DeepSeek", deepseek_status, deepseek_details)
+
+        if shutil.which("claude"):
+            llm_table.add_row(
+                "Claude Code",
+                "[green]installed[/green]",
+                "Uses the Claude CLI subscription login — --model claude-code",
+            )
+        else:
+            llm_table.add_row(
+                "Claude Code",
+                "[dim]not found[/dim]",
+                "Install: https://claude.com/claude-code",
+            )
+
+        if shutil.which("codex"):
+            llm_table.add_row(
+                "Codex CLI",
+                "[green]installed[/green]",
+                "Uses the Codex CLI subscription login — --model codex",
+            )
+        else:
+            llm_table.add_row(
+                "Codex CLI",
+                "[dim]not found[/dim]",
+                "Install: https://github.com/openai/codex",
+            )
 
         console.print(llm_table)
 

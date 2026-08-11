@@ -315,6 +315,18 @@ class FrontierLLMAdapter(ToolAdapter):
         except Exception:
             return False
 
+    def _check_claude_cli(self) -> bool:
+        """Check Claude Code CLI availability."""
+        from miesc.llm.cli_subscription import check_claude_cli
+
+        return check_claude_cli()
+
+    def _check_codex_cli(self) -> bool:
+        """Check Codex CLI availability."""
+        from miesc.llm.cli_subscription import check_codex_cli
+
+        return check_codex_cli()
+
     def _get_provider(self) -> Optional[str]:
         if self._provider == "auto":
             return self._detect_provider()
@@ -339,6 +351,12 @@ class FrontierLLMAdapter(ToolAdapter):
 
         if provider == "ollama":
             return ToolStatus.AVAILABLE if self._check_ollama() else ToolStatus.NOT_INSTALLED
+
+        if provider == "claude_code":
+            return ToolStatus.AVAILABLE if self._check_claude_cli() else ToolStatus.NOT_INSTALLED
+
+        if provider == "codex_cli":
+            return ToolStatus.AVAILABLE if self._check_codex_cli() else ToolStatus.NOT_INSTALLED
 
         if provider == "openai":
             try:
@@ -407,6 +425,14 @@ class FrontierLLMAdapter(ToolAdapter):
                 findings = self._analyze_openai(source_code, rag_context=rag_context, **kwargs)
             elif provider == "ollama":
                 findings = self._analyze_ollama(source_code, rag_context=rag_context, **kwargs)
+            elif provider == "claude_code":
+                findings = self._analyze_claude_code(
+                    source_code, rag_context=rag_context, **kwargs
+                )
+            elif provider == "codex_cli":
+                findings = self._analyze_codex_cli(
+                    source_code, rag_context=rag_context, **kwargs
+                )
             else:
                 return self._error_result(start_time, f"Unknown provider: {provider}")
         except Exception as e:
@@ -1482,6 +1508,30 @@ Respond with a JSON array."""
                 reasoning,
             )
         return self._parse_response(response.choices[0].message.content)
+
+    def _analyze_claude_code(self, source_code: str, **kwargs: Any) -> List[Dict]:
+        """Call Claude through Claude Code subscription authentication."""
+        from miesc.llm.cli_subscription import call_claude_cli
+
+        rag_context = kwargs.pop("rag_context", "")
+        model = kwargs.get("model") or "sonnet"
+        self._model = model
+        prompt = self._build_user_prompt(source_code, rag_context)
+        logger.info("FrontierLLM: Calling Claude Code CLI (%s)", model)
+        return self._parse_response(
+            call_claude_cli(prompt, system_prompt=AUDIT_SYSTEM_PROMPT, model=model)
+        )
+
+    def _analyze_codex_cli(self, source_code: str, **kwargs: Any) -> List[Dict]:
+        """Call Codex through ChatGPT subscription authentication."""
+        from miesc.llm.cli_subscription import call_codex_cli
+
+        rag_context = kwargs.pop("rag_context", "")
+        model = kwargs.get("model")
+        self._model = model or "codex-default"
+        prompt = f"{AUDIT_SYSTEM_PROMPT}\n\n{self._build_user_prompt(source_code, rag_context)}"
+        logger.info("FrontierLLM: Calling Codex CLI (%s)", model or "default model")
+        return self._parse_response(call_codex_cli(prompt, model=model))
 
     def _ensure_ollama_model(self, model: str) -> bool:
         """Check if model is available in Ollama, pull if not."""
