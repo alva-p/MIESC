@@ -405,6 +405,13 @@ class DeepAuditAgent(BaseAgent):
     def _detect_framework(self, contract_path: str) -> str:
         """Detect if contract uses known frameworks."""
         try:
+            from miesc.core.framework_detector import is_foundry_project
+
+            if is_foundry_project(contract_path):
+                return "foundry"
+        except Exception:
+            pass
+        try:
             code = Path(contract_path).read_text()
             if "@openzeppelin" in code:
                 return "openzeppelin"
@@ -554,6 +561,8 @@ class DeepAuditAgent(BaseAgent):
             tools.append("mythril")
         if profile.get("has_assembly"):
             tools.append("halmos")
+        if recon.framework == "foundry":
+            tools.append("foundry")
 
         # Deduplicate preserving order
         seen: Set[str] = set()

@@ -79,6 +79,19 @@ def _profile_uses_agentic_path(profile: Dict[str, Any]) -> bool:
     return bool(profile.get("agentic_ensemble") or profile.get("enable_agentic_invariants"))
 
 
+def _smart_audit_tools(contract: str) -> List[str]:
+    """Add dynamic testing when the target is already a Foundry project."""
+    tools = ["slither", "aderyn", "mythril", "solhint", "smartllm"]
+    try:
+        from miesc.core.framework_detector import is_foundry_project
+
+        if is_foundry_project(contract):
+            tools.append("foundry")
+    except Exception:
+        pass
+    return tools
+
+
 def _run_agentic_audit_profile(
     profile_name: str,
     profile: Dict[str, Any],
@@ -1514,7 +1527,7 @@ def audit_smart(
             console.print("[magenta]LLM validation[/magenta] enabled")
 
     # Define smart tool selection (core reliable tools)
-    smart_tools = ["slither", "aderyn", "mythril", "solhint", "smartllm"]
+    smart_tools = _smart_audit_tools(contract)
 
     info(f"Tools: {', '.join(smart_tools)}")
 

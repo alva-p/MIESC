@@ -346,6 +346,11 @@ class TestTargetedScan:
         assert "defi" in tools
         assert "mev_detector" in tools
 
+    def test_tool_selection_foundry_project(self, agent):
+        recon = ReconResult(risk_profile={"primary": "general"}, framework="foundry")
+
+        assert "foundry" in agent._select_tools(recon)
+
     def test_tool_selection_proxy(self, agent):
         recon = ReconResult(
             risk_profile={
