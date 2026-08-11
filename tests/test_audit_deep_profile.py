@@ -4,7 +4,7 @@ import pytest
 from click.testing import CliRunner
 
 from miesc.agents.deep_audit_agent import DeepAuditConfig
-from miesc.cli.commands.audit import _apply_deep_profile_config, audit_deep
+from miesc.cli.commands.audit import _apply_deep_profile_config, _smart_audit_tools, audit_deep
 
 
 def test_deep_audit_profile_enables_agentic_invariants_without_remote():
@@ -29,6 +29,15 @@ def test_deep_audit_profile_enables_agentic_invariants_without_remote():
 def test_deep_audit_profile_rejects_unknown_profile():
     with pytest.raises(Exception, match="Profile 'missing-profile' not found"):
         _apply_deep_profile_config(DeepAuditConfig(), "missing-profile")
+
+
+def test_smart_audit_adds_foundry_for_foundry_projects(tmp_path):
+    contract = tmp_path / "src" / "Vault.sol"
+    contract.parent.mkdir()
+    contract.write_text("pragma solidity ^0.8.20; contract Vault {}")
+    (tmp_path / "foundry.toml").write_text('[profile.default]\nsrc = "src"\n')
+
+    assert "foundry" in _smart_audit_tools(str(contract))
 
 
 def test_deep_audit_cli_applies_profile_to_agent_config(monkeypatch, tmp_path):

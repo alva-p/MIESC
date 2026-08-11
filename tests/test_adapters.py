@@ -866,7 +866,8 @@ class TestFoundryAdapterComprehensive(TestAdapterBase):
             )
             adapter = FoundryAdapter()
             result = adapter.analyze(temp_contract, timeout=60)
-            assert result is not None
+            assert result["status"] == "inconclusive"
+            assert result["evidence_status"] == "inconclusive"
 
     def test_is_available_check(self):
         """Test forge availability check."""
@@ -878,6 +879,52 @@ class TestFoundryAdapterComprehensive(TestAdapterBase):
             adapter = FoundryAdapter()
             status = adapter.is_available()
             assert status in [ToolStatus.AVAILABLE, ToolStatus.NOT_INSTALLED]
+
+    def test_parses_current_invariant_counterexample_and_calls(self):
+        """Current Forge JSON must become an evidence-backed finding."""
+        from miesc.adapters.foundry_adapter import FoundryAdapter
+
+        adapter = FoundryAdapter()
+        payload = {
+            "test/Vault.t.sol:VaultInvariantTest": {
+                "test_results": {
+                    "invariant_delay()": {
+                        "status": "Failure",
+                        "reason": "panic: assertion failed",
+                        "counterexample": {"Sequence": [2, []]},
+                        "kind": {
+                            "Invariant": {
+                                "metrics": {
+                                    "VaultHandler.deposit": {"calls": 1},
+                                    "VaultHandler.withdraw": {"calls": 1},
+                                }
+                            },
+                        },
+                    },
+                },
+            },
+        }
+        findings, stats = adapter._parse_output(json.dumps(payload), "")
+
+        assert stats == {"total": 1, "passed": 0, "failed": 1, "calls": 2, "errors": 0}
+        assert findings[0]["test"] == "invariant_delay()"
+        assert findings[0]["counterexample"] == {"Sequence": [2, []]}
+
+    def test_setup_failure_is_not_a_security_finding(self):
+        from miesc.adapters.foundry_adapter import FoundryAdapter
+
+        findings, stats = FoundryAdapter()._parse_json_results(
+            {
+                "test/Vault.t.sol:VaultInvariantTest": {
+                    "test_results": {
+                        "setUp()": {"status": "Failure", "reason": "deployment reverted"}
+                    }
+                }
+            }
+        )
+
+        assert findings == []
+        assert stats["errors"] == 1
 
 
 class TestHalmosAdapterComprehensive(TestAdapterBase):
