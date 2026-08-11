@@ -334,6 +334,28 @@ class TestPropertyGPTAdapter(TestAdapterBase):
         adapter = PropertyGPTAdapter()
         assert adapter is not None
 
+    def test_analyze_exposes_generated_properties_as_findings(self, tmp_path):
+        from miesc.adapters.propertygpt_adapter import PropertyGPTAdapter
+
+        contract = tmp_path / "Vault.sol"
+        contract.write_text("contract Vault {}", encoding="utf-8")
+        prop = {
+            "type": "invariant",
+            "name": "assetsCoverShares",
+            "cvl_code": "invariant assetsCoverShares() true;",
+            "description": "Assets must cover shares",
+            "confidence": 0.9,
+        }
+        adapter = PropertyGPTAdapter({"enable_validation": False})
+
+        with patch.object(adapter, "_generate_properties_llm", return_value=[prop]):
+            result = adapter.analyze(str(contract))
+
+        assert result["properties"] == [prop]
+        assert result["findings"][0]["type"] == "formal_property_recommendation"
+        assert result["findings"][0]["cvl_code"] == prop["cvl_code"]
+        assert prop["cvl_code"] in result["cvl_spec"]
+
 
 class TestSmartLLMAdapter(TestAdapterBase):
     """Tests for SmartLLMAdapter."""

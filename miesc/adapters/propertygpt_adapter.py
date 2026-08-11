@@ -289,6 +289,9 @@ class PropertyGPTAdapter(ToolAdapter):
                 "version": "1.0.0",
                 "status": "success",
                 "properties": high_confidence_properties,
+                "findings": self.normalize_findings(
+                    {"properties": high_confidence_properties}
+                ),
                 "cvl_spec": cvl_spec,
                 "metadata": {
                     "contract_name": contract_info.get("name", "Unknown"),
