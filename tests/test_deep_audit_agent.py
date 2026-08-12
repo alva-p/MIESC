@@ -1145,7 +1145,7 @@ class TestTargetedTaintForFunction:
 class TestFindAttackPaths:
     def test_success(self, agent):
         mock_cg = MagicMock()
-        mock_cg.paths_to_sink.return_value = [["entry", "mid", "withdraw"]]
+        mock_cg.paths_to_sink.return_value = [MagicMock(nodes=["entry", "mid", "withdraw"])]
         paths = agent._find_attack_paths(mock_cg, "withdraw")
         assert len(paths) == 1
         assert "withdraw" in paths[0]
@@ -1168,14 +1168,29 @@ class TestFindAttackPaths:
     def test_multiple_paths_truncated(self, agent):
         mock_cg = MagicMock()
         mock_cg.paths_to_sink.return_value = [
-            ["a", "b", "c", "d", "e", "f"],
-            ["x", "y"],
-            ["p", "q", "r"],
-            ["should", "be", "skipped"],
+            MagicMock(nodes=["a", "b", "c", "d", "e", "f"]),
+            MagicMock(nodes=["x", "y"]),
+            MagicMock(nodes=["p", "q", "r"]),
+            MagicMock(nodes=["should", "be", "skipped"]),
         ]
         paths = agent._find_attack_paths(mock_cg, "target")
         assert len(paths) == 3  # Max 3 paths
         assert len(paths[0].split(" -> ")) <= 5  # Max 5 nodes per path
+
+    def test_reachable_sink_regression_real_call_graph(self, agent):
+        # Regression guard for the chain[:2]-style bug (CallPath isn't
+        # subscriptable) — exercise the real CallGraph, not a mock, so a
+        # future p[:5] slip would be caught here too.
+        src = (
+            "pragma solidity ^0.8.0;\n"
+            "contract C {\n"
+            "    function withdraw() external { _unsafe(); }\n"
+            "    function _unsafe() internal { msg.sender.call{value: 1}(\"\"); }\n"
+            "}\n"
+        )
+        cg, _, _ = agent._build_call_graph(src)
+        paths = agent._find_attack_paths(cg, "withdraw")
+        assert paths != []
 
 
 # ---------------------------------------------------------------------------
@@ -1228,7 +1243,7 @@ class TestCorrelateFindings:
     def test_success(self, agent):
         mock_mod = MagicMock()
         mock_mod.correlate_findings.return_value = {
-            "findings": [{"title": "correlated", "severity": "high"}]
+            "filtered_findings": [{"title": "correlated", "severity": "high"}]
         }
         with patch.dict("sys.modules", {"miesc.ml.correlation_engine": mock_mod}):
             result = agent._correlate_findings([{"title": "raw"}])
@@ -1247,6 +1262,68 @@ class TestCorrelateFindings:
         with patch.dict("sys.modules", {"miesc.ml.correlation_engine": None}):
             result = agent._correlate_findings(findings)
             assert result == findings
+
+
+class TestCorrelateAndChainsRealCorrelationEngine:
+    """Regression guard against the real bug this session: both
+    _correlate_findings and _detect_exploit_chains used to pass a flat list
+    where correlate_findings()/ExploitChainAnalyzer expected {tool: [findings]},
+    raising AttributeError swallowed by a bare except — real findings never
+    got correlated and exploit_chains was always []. Uses the real
+    miesc.ml.correlation_engine module (no mocking) so a regression here
+    would actually fail, unlike the mocked tests above which encode the
+    fixed shape.
+    """
+
+    def test_correlate_findings_actually_deduplicates(self, agent):
+        findings = [
+            {
+                "id": "f1",
+                "tool": "slither",
+                "type": "reentrancy",
+                "severity": "high",
+                "location": {"file": "C.sol", "line": 10, "function": "withdraw"},
+                "message": "reentrancy in withdraw",
+                "confidence": 0.8,
+            },
+            {
+                "id": "f2",
+                "tool": "aderyn",
+                "type": "reentrancy",
+                "severity": "high",
+                "location": {"file": "C.sol", "line": 10, "function": "withdraw"},
+                "message": "reentrancy in withdraw",
+                "confidence": 0.75,
+            },
+        ]
+        result = agent._correlate_findings(findings)
+        # Two tools reporting the same bug at the same location get merged into one.
+        assert len(result) == 1
+
+    def test_detect_exploit_chains_finds_known_pattern(self, agent):
+        findings = [
+            {
+                "id": "f1",
+                "tool": "slither",
+                "type": "reentrancy",
+                "severity": "high",
+                "location": {"file": "C.sol", "line": 10, "function": "withdraw"},
+                "message": "reentrancy in withdraw",
+                "confidence": 0.8,
+            },
+            {
+                "id": "f2",
+                "tool": "mythril",
+                "type": "unchecked-call",
+                "severity": "medium",
+                "location": {"file": "C.sol", "line": 40, "function": "transferOut"},
+                "message": "unchecked low level call",
+                "confidence": 0.7,
+            },
+        ]
+        chains = agent._detect_exploit_chains(findings)
+        assert len(chains) == 1
+        assert "drain" in chains[0]["name"].lower() or "reentrancy" in chains[0]["name"].lower()
 
 
 # ---------------------------------------------------------------------------

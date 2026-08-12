@@ -603,6 +603,22 @@ class TestCallGraphBuilder:
             assert func.has_access_control is True
             assert func.has_reentrancy_guard is True
 
+    def test_contract_line_ranges_for_multiple_contracts(self, builder):
+        """MEJORAS.md #5b: line ranges let a finding's line be attributed to
+        the right contract when a file declares several."""
+        source = (
+            "pragma solidity ^0.8.0;\n"
+            "contract A {\n"
+            "    function foo() external {}\n"
+            "}\n"
+            "contract B is A {\n"
+            "    function bar() external {}\n"
+            "}\n"
+        )
+        graph = builder.build_from_source(source)
+        assert graph.contract_line_ranges["A"] == (2, 4)
+        assert graph.contract_line_ranges["B"] == (5, 7)
+
     def test_build_from_slither_empty(self, builder):
         """Test building from empty Slither output."""
         slither_output = {}

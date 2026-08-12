@@ -16,6 +16,7 @@ License: AGPL-3.0
 
 import logging
 import re
+import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
@@ -53,6 +54,7 @@ class DeepAuditConfig:
     enable_rag: bool = True
     enable_taint: bool = True
     enable_call_graph: bool = True
+    enable_git_activity: bool = True
     enable_exploit_chains: bool = True
     enable_agentic_invariants: bool = False
     agentic_invariants_allow_remote: bool = False
@@ -83,7 +85,11 @@ class ReconResult:
     external_calls: List[str] = field(default_factory=list)
     attack_surface_score: float = 0.0
     framework: str = "unknown"
+    git_commits: int = 0
     duration_ms: float = 0.0
+    # Optional, caller-supplied miesc.ml.protocol_graph.ProtocolGraph (MEJORAS.md #5) —
+    # carried through unchanged, not yet consumed by Phases 2-4 (see #5b follow-up).
+    protocol_graph: Any = None
 
 
 @dataclass
@@ -330,9 +336,13 @@ class DeepAuditAgent(BaseAgent):
         # Framework detection
         result.framework = self._detect_framework(contract_path)
 
+        # Git-activity signal (0 outside a git repo / on any git error)
+        if self.config.enable_git_activity:
+            result.git_commits = self._count_git_commits(contract_path)
+
         # Attack surface score
         result.attack_surface_score = self._compute_attack_surface(
-            result.entry_points, result.external_calls, result.taint_results
+            result.entry_points, result.external_calls, result.taint_results, result.git_commits
         )
 
         result.duration_ms = (time.monotonic() - t0) * 1000
@@ -341,6 +351,31 @@ class DeepAuditAgent(BaseAgent):
             f"entries={len(result.entry_points)}, surface={result.attack_surface_score:.1f}"
         )
         return result
+
+    def run_reconnaissance(self, contract_path: str, protocol_graph: Any = None) -> ReconResult:
+        """Public Phase-1-only entry point (used by `miesc xray`) — no scan/investigation/synthesis.
+
+        protocol_graph: optional miesc.ml.protocol_graph.ProtocolGraph built by a caller
+        that already scanned the whole protocol — attached as-is, not otherwise used yet.
+        """
+        result = self._phase_reconnaissance(contract_path, Path(contract_path).read_text())
+        result.protocol_graph = protocol_graph
+        return result
+
+    def _count_git_commits(self, contract_path: str) -> int:
+        """Commits touching this file, for attack-surface weighting. 0 if not a git repo."""
+        try:
+            path = Path(contract_path).resolve()
+            proc = subprocess.run(
+                ["git", "log", "--follow", "--format=%H", "--", path.name],
+                cwd=path.parent,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            return len(proc.stdout.strip().splitlines()) if proc.returncode == 0 else 0
+        except Exception:
+            return 0
 
     def _build_call_graph(self, source_code: str) -> Tuple[Any, List[Any], List[str]]:
         """Build call graph and extract entry points."""
@@ -424,13 +459,27 @@ class DeepAuditAgent(BaseAgent):
         return "custom"
 
     def _compute_attack_surface(
-        self, entries: List[str], ext_calls: List[str], taint: list
+        self,
+        entries: List[str],
+        ext_calls: List[str],
+        taint: list,
+        git_activity_commits: int = 0,
     ) -> float:
-        """Compute attack surface score 0-100."""
+        """Compute attack surface score 0-100.
+
+        git_activity_commits (pashov-xray heuristic: heavily-churned code carries
+        more historical bug risk) applies a bounded multiplier on top of the base
+        score instead of a separate additive term, so a caller that doesn't pass
+        it (default 0) gets byte-identical behavior to before this was added.
+        """
         score = min(len(entries) * 5, 30)
         score += min(len(ext_calls) * 10, 40)
         score += min(len(taint) * 5, 30) if isinstance(taint, list) else 0
-        return min(score, 100.0)
+        score = min(score, 100.0)
+        if git_activity_commits > 0:
+            # ponytail: linear multiplier capped at +30%, tune if data suggests otherwise
+            score = min(score * (1.0 + min(git_activity_commits / 50, 0.3)), 100.0)
+        return score
 
     # -----------------------------------------------------------------------
     # Phase 2: Targeted Scan
@@ -1202,7 +1251,7 @@ Respond ONLY with JSON of the shape:
         try:
             if hasattr(call_graph, "paths_to_sink"):
                 paths = call_graph.paths_to_sink(func_name)
-                return [" -> ".join(str(n) for n in p[:5]) for p in paths[:3]]
+                return [" -> ".join(str(n) for n in p.nodes[:5]) for p in paths[:3]]
         except Exception:
             pass
         return []
@@ -1253,7 +1302,14 @@ Respond ONLY with JSON of the shape:
         return None
 
     def _detect_exploit_chains(self, findings: List[Dict]) -> List[Dict]:
-        """Detect exploit chains across findings."""
+        """Detect exploit chains across findings.
+
+        correlate_findings() builds the CorrelatedFinding objects
+        ExploitChainAnalyzer.analyze() actually needs (attribute access, not
+        dict access) and runs it internally — calling ExploitChainAnalyzer
+        directly with raw dicts here used to raise on every call, silently
+        swallowed by the except below, so this always returned [].
+        """
         try:
             from miesc.ml.correlation_engine import ExploitChainAnalyzer, SmartCorrelationEngine
 
@@ -1324,15 +1380,26 @@ Respond ONLY with JSON of the shape:
             "has_llm_narrative": has_llm,
         }
 
+    def _group_findings_by_tool(self, findings: List[Dict]) -> Dict[str, List[Dict]]:
+        """correlate_findings()/ExploitChainAnalyzer both expect {tool: [findings]}."""
+        grouped: Dict[str, List[Dict]] = {}
+        for f in findings:
+            grouped.setdefault(f.get("tool", "unknown"), []).append(f)
+        return grouped
+
     def _correlate_findings(self, findings: List[Dict]) -> List[Dict]:
         """Correlate and deduplicate findings."""
         try:
             from miesc.ml.correlation_engine import correlate_findings
 
-            # correlate_findings expects tool_results: Dict[tool_name, List[finding]]
-            result = correlate_findings({"deep_audit": findings})
+            # correlate_findings expects tool_results: Dict[tool_name, List[finding]].
+            # Its report dict has no "findings" key (only "all_findings"/
+            # "filtered_findings") — a bare .get("findings", findings) always
+            # falls through to the unmodified input, same silent-bug shape as
+            # everything else fixed today. Use the real key.
+            result = correlate_findings(self._group_findings_by_tool(findings))
             if isinstance(result, dict):
-                return cast(List[Dict[str, Any]], result.get("findings", findings))
+                return cast(List[Dict[str, Any]], result.get("filtered_findings", findings))
             return findings
         except Exception:
             return findings
