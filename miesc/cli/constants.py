@@ -44,12 +44,25 @@ LAYERS: Dict[int, Dict[str, Any]] = {
     5: {
         "name": "AI Analysis",
         "description": "LLM-powered vulnerability detection",
-        "tools": ["smartllm", "gptscan", "llmsmartaudit", "gptlens", "llamaaudit", "iaudit"],
+        "tools": [
+            "smartllm",
+            "gptscan",
+            "llmsmartaudit",
+            "gptlens",
+            "llamaaudit",
+            "iaudit",
+            "smartguard",
+        ],
     },
     6: {
-        "name": "ML Detection",
-        "description": "Machine learning classifiers",
-        "tools": ["dagnn", "smartbugs_ml", "smartbugs_detector", "smartguard", "peculiar"],
+        "name": "Heuristic & Pattern Detection",
+        "description": (
+            "Regex/rule-based pattern matching and graph-structure heuristics. "
+            "No trained ML model weights are shipped or loaded today: dagnn/"
+            "peculiar/smartbugs_ml fall back to heuristics when GNN weights "
+            "are absent, and smartbugs_detector is pure regex."
+        ),
+        "tools": ["dagnn", "smartbugs_ml", "smartbugs_detector", "peculiar"],
     },
     7: {
         "name": "Specialized Analysis",
@@ -71,7 +84,16 @@ LAYERS: Dict[int, Dict[str, Any]] = {
     },
     9: {
         "name": "Advanced AI Ensemble",
-        "description": "Multi-LLM ensemble with consensus-based detection",
+        "description": (
+            "Multi-LLM ensemble with consensus-based detection. Only "
+            "llmbugscanner reads the contract on its own; audit_consensus/"
+            "exploit_synthesizer/vuln_verifier/remediation_validator are "
+            "second-opinion reviewers that need another tool's findings passed "
+            "in as input (findings_map/findings kwargs) — no scan/audit command "
+            "wires that up today (audit_consensus/vuln_verifier only via MCP "
+            "server tools; exploit_synthesizer/remediation_validator have no "
+            "caller at all), so they return an empty findings list otherwise."
+        ),
         "tools": [
             "llmbugscanner",
             "audit_consensus",
