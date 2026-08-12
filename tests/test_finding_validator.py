@@ -255,7 +255,7 @@ async def test_validate_finding_defaults_malformed_code_context(monkeypatch):
     captured = {}
 
     async def fake_call(prompt):
-        captured["prompt"] = prompt
+        captured.setdefault("prompt", prompt)  # keep first call (validation, not gate enrichment)
         return '{"result": "valid", "confidence": 0.8, "reasoning": "Confirmed."}'
 
     monkeypatch.setattr(validator, "_call_ollama", fake_call)
@@ -276,7 +276,7 @@ async def test_validate_finding_bounds_code_context_and_allows_multiline(monkeyp
     code_context = "contract Vault {\n" + ("x" * 1600) + "\n}"
 
     async def fake_call(prompt):
-        captured["prompt"] = prompt
+        captured.setdefault("prompt", prompt)  # keep first call (validation, not gate enrichment)
         return '{"result": "valid", "confidence": 0.8, "reasoning": "Confirmed."}'
 
     monkeypatch.setattr(validator, "_call_ollama", fake_call)
@@ -296,7 +296,7 @@ async def test_validate_finding_defaults_control_char_contexts(monkeypatch):
     captured = {}
 
     async def fake_call(prompt):
-        captured["prompt"] = prompt
+        captured.setdefault("prompt", prompt)  # keep first call (validation, not gate enrichment)
         return '{"result": "valid", "confidence": 0.8, "reasoning": "Confirmed."}'
 
     monkeypatch.setattr(validator, "_call_ollama", fake_call)
@@ -363,7 +363,7 @@ async def test_validate_finding_uses_defaults_for_malformed_location(monkeypatch
     }
 
     async def fake_call(prompt):
-        captured["prompt"] = prompt
+        captured.setdefault("prompt", prompt)  # keep first call (validation, not gate enrichment)
         return '{"result": "valid", "confidence": 0.8, "reasoning": "Confirmed."}'
 
     monkeypatch.setattr(validator, "_call_ollama", fake_call)
@@ -390,7 +390,7 @@ async def test_validate_finding_defaults_malformed_prompt_scalar_fields(monkeypa
     }
 
     async def fake_call(prompt):
-        captured["prompt"] = prompt
+        captured.setdefault("prompt", prompt)  # keep first call (validation, not gate enrichment)
         return '{"result": "valid", "confidence": 0.8, "reasoning": "Confirmed."}'
 
     monkeypatch.setattr(validator, "_call_ollama", fake_call)
@@ -414,7 +414,7 @@ async def test_validate_finding_uses_valid_description_when_message_missing(monk
     captured = {}
 
     async def fake_call(prompt):
-        captured["prompt"] = prompt
+        captured.setdefault("prompt", prompt)  # keep first call (validation, not gate enrichment)
         return '{"result": "valid", "confidence": 0.8, "reasoning": "Confirmed."}'
 
     monkeypatch.setattr(validator, "_call_ollama", fake_call)
@@ -439,7 +439,7 @@ async def test_validate_finding_defaults_malformed_contract_context(monkeypatch)
     captured = {}
 
     async def fake_call(prompt):
-        captured["prompt"] = prompt
+        captured.setdefault("prompt", prompt)  # keep first call (validation, not gate enrichment)
         return '{"result": "valid", "confidence": 0.8, "reasoning": "Confirmed."}'
 
     monkeypatch.setattr(validator, "_call_ollama", fake_call)
@@ -1225,7 +1225,7 @@ async def test_validate_finding_defaults_prompt_line_for_non_numeric_string(monk
     captured = {}
 
     async def fake_call(prompt):
-        captured["prompt"] = prompt
+        captured.setdefault("prompt", prompt)  # keep first call (validation, not gate enrichment)
         return '{"result": "valid", "confidence": 0.8, "reasoning": "Confirmed."}'
 
     monkeypatch.setattr(validator, "_call_ollama", fake_call)

@@ -24,7 +24,7 @@ import logging
 import math
 import os
 import re
-from dataclasses import dataclass, fields, replace
+from dataclasses import dataclass, field, fields, replace
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
@@ -153,6 +153,9 @@ class LLMValidation:
     code_context_analysis: Optional[str] = None
     remediation_hint: Optional[str] = None
     validation_time_ms: int = 0
+    # Gates 0/2/3/4 (MEJORAS.md #3) — advisory only, never affects the
+    # kept/filtered_out decision (only `result` above, Gate 1, does that).
+    gate_results: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -167,9 +170,12 @@ class ValidatorConfig:
     min_severity_to_validate: str = "medium"  # Only validate >= this severity
     batch_size: int = 5
     enabled: bool = True
+    # provider: "ollama" (default, local), "claude_code", or "codex_cli"
+    # (subscription auth via CLI subprocess, same as frontier_llm_adapter.py —
+    # opt-in only, never selected automatically).
     provider: str = "ollama"
-    cli_model: Optional[str] = None
-    confirm_false_positives: bool = True
+    cli_model: Optional[str] = None  # model name for claude_code/codex_cli providers
+    confirm_false_positives: bool = True  # run a 2nd independent pass before discarding
 
 
 class LLMFindingValidator:
@@ -219,24 +225,56 @@ Respond ONLY with a valid JSON object (no markdown, no extra text):
     "remediation_hint": "Brief fix suggestion if valid" or null
 }}"""
 
-    CONFIRMATION_PROMPT = """A first reviewer marked this finding as a false positive. Independently look for a reason it could still be exploitable; do not simply agree.
+    # Second, independent pass before actually discarding a FALSE_POSITIVE
+    # verdict — deliberately a different prompt/role than VALIDATION_PROMPT
+    # above (detection vs. confirmation), same principle open-kritt uses for
+    # its post-scripts (AGPL-3.0): verification is a separate call, not the
+    # same prompt reused.
+    CONFIRMATION_PROMPT = """A first-pass reviewer flagged this security finding as a FALSE POSITIVE. You are a second, independent reviewer — your job is specifically to catch cases where the first reviewer was wrong. Do NOT simply agree; actively look for a reason this could still be a real, exploitable vulnerability.
 
-Finding: {finding_type} at {file}:{line}
-Message: {message}
+## Finding
+- Type: {finding_type}
+- Location: {file}:{line}
+- Message: {message}
 
-Code context:
+## Code Context
 ```solidity
 {code_snippet}
 ```
 
-First reviewer's reasoning:
+## First reviewer's reasoning for false positive
 {first_reasoning}
 
-Respond ONLY with this JSON object:
+## Your Task
+Respond ONLY with a valid JSON object (no markdown, no extra text):
 {{
     "confirms_false_positive": true or false,
     "confidence": 0.0 to 1.0,
-    "reasoning": "Brief explanation"
+    "reasoning": "Brief explanation (1-2 sentences)"
+}}"""
+
+    # Gates 0/3/4 (Bounty Viability / Trigger / Impact) — bundled into one call,
+    # run only for findings Gate 1 (refutation, above) didn't confirm as a false
+    # positive. Advisory: these never cause a finding to be discarded.
+    ENRICHMENT_PROMPT = """You are triaging this smart contract finding the way a bug-bounty/audit-contest judge would, after it already passed an initial refutation check. Answer three specific questions.
+
+## Finding
+- Type: {finding_type}
+- Severity: {severity}
+- Location: {file}:{line}
+- Message: {message}
+
+## Code Context
+```solidity
+{code_snippet}
+```
+
+## Your Task
+Respond ONLY with a valid JSON object (no markdown, no extra text):
+{{
+    "bounty_viability": "would_be_accepted" | "informational_only" | "unclear",
+    "trigger_conditions": "concrete preconditions/parameters needed to trigger this, or null if not applicable",
+    "impact": "concrete consequence if triggered (funds at risk / control loss / denial of service / none), or null if not applicable"
 }}"""
 
     # Severity order for filtering
@@ -354,6 +392,7 @@ Respond ONLY with this JSON object:
 
             return check_codex_cli()
 
+        # Default: Ollama, check it's running and the model is loaded
         try:
             session = await self._get_session()
             async with session.get(f"{self._safe_ollama_host()}/api/tags") as resp:
@@ -385,7 +424,7 @@ Respond ONLY with this JSON object:
             logger.debug("Ollama not available: %s", self._exception_reason(e))
             return False
 
-    def should_validate(self, finding: Any) -> bool:
+    def should_validate(self, finding: Dict[str, Any]) -> bool:
         """
         Determine if a finding should be validated by LLM.
 
@@ -467,6 +506,10 @@ Respond ONLY with this JSON object:
 
             # Parse response
             validation = self._parse_response(response, finding_id)
+            # A FALSE_POSITIVE verdict is the risky one — it makes the finding
+            # disappear from the report. Before trusting it, run an independent
+            # second pass that's explicitly told to look for a reason the first
+            # pass was wrong (see CONFIRMATION_PROMPT).
             if (
                 validation.result == ValidationResult.FALSE_POSITIVE
                 and self.config.confirm_false_positives
@@ -474,6 +517,23 @@ Respond ONLY with this JSON object:
                 validation = await self._confirm_false_positive(
                     safe_finding, validation, code_snippet
                 )
+
+            # Gate 2 (Reachability): cheap, deterministic, runs regardless of the
+            # Gate 1 verdict — advisory signal only, see _gate2_reachability.
+            # (Confidence adjustment on "unreachable" happens in _apply_validation,
+            # which owns the finding's final confidence value.)
+            validation.gate_results["gate2_reachability"] = self._gate2_reachability(
+                safe_finding, code_snippet
+            )
+
+            # Gates 0/3/4 (bounty viability / trigger / impact): one extra LLM call,
+            # only for findings Gate 1 didn't already confirm as a false positive —
+            # no point enriching something that's already being filtered out.
+            if validation.result != ValidationResult.FALSE_POSITIVE:
+                validation.gate_results.update(
+                    await self._gate_034_enrichment(safe_finding, code_snippet)
+                )
+
             validation.validation_time_ms = self._parse_nonnegative_int(
                 int((time.time() - start_time) * 1000)
             )
@@ -585,6 +645,96 @@ Respond ONLY with this JSON object:
             ),
             reasoning=f"{first_validation.reasoning} | Second pass: {second_reasoning}",
         )
+
+    def _extract_function_name(self, finding: Dict[str, Any]) -> Optional[str]:
+        """Best-effort function name from a finding's location, for Gate 2."""
+        loc = _safe_mapping_get(finding, "location", {})
+        if isinstance(loc, dict):
+            func = _safe_mapping_get(loc, "function", "")
+            if func and func != "unknown":
+                return func
+        m = re.search(r"function\s+(\w+)", str(loc))
+        return m.group(1) if m else None
+
+    def _gate2_reachability(self, finding: Dict[str, Any], code_context: str) -> Dict[str, Any]:
+        """Gate 2 (Reachability): is the finding's function reachable from an
+        entry point in a single-file call graph? Heuristic signal (regex-based
+        call graph, see miesc/ml/call_graph.py) — not proof, so it's advisory:
+        the caller reduces confidence on "unreachable" but never discards on
+        this alone (see validate_finding).
+        """
+        if not code_context:
+            return {"verdict": "unknown", "reason": "no code context available"}
+
+        func_name = self._extract_function_name(finding)
+        if not func_name:
+            return {"verdict": "unknown", "reason": "could not determine function from finding location"}
+
+        try:
+            from miesc.ml.call_graph import CallGraphBuilder
+
+            graph = CallGraphBuilder().build_from_source(code_context)
+        except Exception as e:
+            return {"verdict": "unknown", "reason": f"call graph build failed: {e}"}
+
+        if func_name not in graph.nodes:
+            return {"verdict": "unknown", "reason": f"function '{func_name}' not found in call graph"}
+
+        entry_points = {f.name for f in graph.get_entry_points()}
+        if func_name in entry_points:
+            return {"verdict": "reachable", "reason": f"'{func_name}' is itself an entry point"}
+
+        for entry in entry_points:
+            if graph.can_reach(entry, func_name):
+                return {"verdict": "reachable", "reason": f"reachable from entry point '{entry}'"}
+
+        return {
+            "verdict": "unreachable",
+            "reason": "no entry point reaches this function in the single-file call graph",
+        }
+
+    async def _gate_034_enrichment(
+        self, finding: Dict[str, Any], code_context: str
+    ) -> Dict[str, Any]:
+        """Gates 0/3/4 (Bounty Viability / Trigger / Impact), one LLM call.
+
+        Always advisory — a missing/malformed response degrades to "unclear"/
+        null fields, never raises, never affects the kept/filtered decision.
+        """
+        loc = _safe_mapping_get(finding, "location", {})
+        if not isinstance(loc, dict):
+            loc = {}
+        default = {
+            "gate0_bounty_viability": "unclear",
+            "gate3_trigger_conditions": None,
+            "gate4_impact": None,
+        }
+        try:
+            prompt = self.ENRICHMENT_PROMPT.format(
+                finding_type=_safe_mapping_get(finding, "type", "unknown"),
+                severity=_safe_mapping_get(finding, "severity", "unknown"),
+                file=_safe_mapping_get(loc, "file", "unknown"),
+                line=_safe_mapping_get(loc, "line", 0),
+                message=_safe_mapping_get(
+                    finding, "message", _safe_mapping_get(finding, "description", "No message")
+                ),
+                code_snippet=code_context[:1500] if code_context else "Not available",
+            )
+            response = await self._call_llm(prompt)
+            match = re.search(r"\{[^{}]*\}", response, re.DOTALL)
+            if not match:
+                return default
+            data = json.loads(match.group())
+            if not isinstance(data, dict):
+                return default
+            return {
+                "gate0_bounty_viability": data.get("bounty_viability", "unclear"),
+                "gate3_trigger_conditions": data.get("trigger_conditions"),
+                "gate4_impact": data.get("impact"),
+            }
+        except Exception as e:
+            logger.debug(f"Gate 0/3/4 enrichment failed for {_safe_mapping_get(finding, 'id')}: {e}")
+            return default
 
     async def _call_ollama(self, prompt: str) -> str:
         """Call Ollama API and return response."""
@@ -954,7 +1104,11 @@ Respond ONLY with this JSON object:
             code_contexts: Optional dict mapping file paths to code content
 
         Returns:
-            Tuple of (validated_findings, validations)
+            Tuple of (validated_findings, validations). Confirmed false
+            positives are tagged status="filtered_fp" (see _apply_validation)
+            and land in self.filtered_out_findings, not in validated_findings
+            — never silently dropped, so callers can show them in an audit
+            trail instead of losing them.
         """
         self.filtered_out_findings = []
         if not self._config_enabled(self.config):
@@ -983,7 +1137,7 @@ Respond ONLY with this JSON object:
             logger.info("No findings require LLM validation")
             return findings, []
 
-        logger.info(f"Validating {len(to_validate)} findings with LLM...")
+        logger.info(f"Validating {len(to_validate)} findings with LLM ({self.config.provider})...")
 
         validations = []
         validated_findings = []
@@ -1027,11 +1181,10 @@ Respond ONLY with this JSON object:
                             reasoning=self._exception_reason(validation),
                         )
                     )
-                    validated_findings.append(finding)
+                    validated_findings.append(finding)  # fail-safe: keep on exception
                 else:
                     validations.append(validation)
 
-                    # Update finding based on validation
                     updated_finding = self._apply_validation(finding, validation)
                     if updated_finding.get("status") == "filtered_fp":
                         self.filtered_out_findings.append(updated_finding)
@@ -1101,6 +1254,19 @@ Respond ONLY with this JSON object:
             "validation_time_ms": validation_time_ms,
         }
 
+        # 5 Validation Gates (MEJORAS.md #3) — only gate1_refutation (above,
+        # same data as _llm_validation) has discard authority. The rest are
+        # always advisory, attached here so nothing is lost even when a
+        # finding is filtered out.
+        updated["_gate_results"] = {
+            "gate1_refutation": {
+                "result": result.value,
+                "confidence": confidence,
+                "reasoning": reasoning,
+            },
+            **self._safe_getattr(validation, "gate_results", {}),
+        }
+
         if result == ValidationResult.FALSE_POSITIVE:
             logger.debug("Filtering FP: %s — %s", _safe_mapping_get(finding, "id"), reasoning)
             updated["status"] = "filtered_fp"
@@ -1124,6 +1290,14 @@ Respond ONLY with this JSON object:
         elif result == ValidationResult.UNCERTAIN:
             # Keep original confidence
             pass
+
+        # Gate 2 (Reachability): "unreachable" is a heuristic signal from a
+        # regex-based call graph, not proof — lightly discount confidence,
+        # never move the finding to filtered_out on this alone.
+        gate_results = self._safe_getattr(validation, "gate_results", {})
+        gate2 = _safe_mapping_get(gate_results, "gate2_reachability", {})
+        if _safe_mapping_get(gate2, "verdict") == "unreachable":
+            updated["confidence"] = updated.get("confidence", original_confidence) * 0.85
 
         # Apply severity suggestion if provided and different
         if suggested_severity:
@@ -1206,7 +1380,9 @@ def validate_findings_sync(
         config: Optional validator configuration
 
     Returns:
-        Tuple of (validated_findings, validations)
+        Tuple of (validated_findings, validations). See
+        LLMFindingValidator.validate_findings_batch — confirmed false
+        positives land in validator.filtered_out_findings, not here.
     """
     if not isinstance(findings, list):
         logger.warning("Skipping malformed findings container for synchronous LLM validation")
