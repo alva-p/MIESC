@@ -936,8 +936,8 @@ def _run_full_audit_basic(
             deduped = len(all_findings_flat) - len(enhanced)
             if deduped > 0:
                 info(f"Intelligence engine: merged {deduped} duplicate findings across tools")
-    except Exception:
-        pass  # graceful degradation
+    except Exception as e:
+        info(f"Intelligence engine skipped: {e}")
 
     # Recall-safe benign-context verifier (opt-in)
     if verify_fp:
@@ -1210,8 +1210,8 @@ def audit_quick(
             deduped = len(all_findings_flat) - len(enhanced)
             if deduped > 0:
                 info(f"Intelligence engine: merged {deduped} duplicate findings across tools")
-    except Exception:
-        pass  # graceful degradation
+    except Exception as e:
+        info(f"Intelligence engine skipped: {e}")
 
     # Recall-safe benign-context verifier (opt-in)
     if verify_fp:
@@ -1556,7 +1556,11 @@ def audit_layer(layer_num: int, contract: str, output: str | None, timeout: int)
     "--validator-model",
     type=click.Choice(["ollama", "claude-code", "codex"], case_sensitive=False),
     default="ollama",
-    help="Validator backend: local Ollama or an authenticated Claude Code/Codex CLI",
+    help=(
+        "LLM used for --llm-validate. ollama (default) runs fully local. "
+        "claude-code/codex use your existing Claude Code/Codex CLI subscription login "
+        "(opt-in, no API key) instead of the local model."
+    ),
 )
 def audit_smart(
     contract: str,
@@ -1655,12 +1659,17 @@ def audit_smart(
 
             import asyncio
 
+            try:
+                code_contexts = {contract: Path(contract).read_text()}
+            except OSError:
+                code_contexts = {}
+
             async def validate() -> tuple[list[dict[str, Any]], list[Any]]:
-                validated, validations = await validator.validate_findings_batch(
-                    result.ml_filtered_findings
+                kept, validations = await validator.validate_findings_batch(
+                    result.ml_filtered_findings, code_contexts
                 )
                 await validator.close()
-                return validated, validations
+                return kept, validations
 
             validated_findings, validations = asyncio.run(validate())
             filtered_out = getattr(validator, "filtered_out_findings", None)
@@ -1669,6 +1678,11 @@ def audit_smart(
                     finding for finding in llm_candidates if finding not in validated_findings
                 ]
 
+            # Update result with LLM validation. Findings the LLM confirmed
+            # as false positives go into ml_filtered_out (same field the ML
+            # pattern-based filter already uses) instead of disappearing —
+            # keeps a trail of what was removed and why (see _llm_validation
+            # metadata on each one).
             if filtered_out:
                 info(f"LLM filtered {len(filtered_out)} additional false positives")
                 result.ml_filtered_findings = validated_findings
@@ -1729,6 +1743,8 @@ def audit_smart(
                     f"  [{color}][{sev}][/{color}] {vtype} - {loc.get('file', '')}:{loc.get('line', 0)}"
                 )
 
+        # Discarded findings — visible with their reasoning instead of
+        # silently disappearing (see ml_filtered_out / status="filtered_fp")
         discarded = getattr(result, "ml_filtered_out", [])
         if discarded:
             console.print(f"\n[dim]Discarded ({len(discarded)}):[/dim]")
@@ -1736,6 +1752,8 @@ def audit_smart(
                 finding_type = finding.get("type", finding.get("title", "unknown"))
                 reason = finding.get("_llm_validation", {}).get("reasoning", "")[:100]
                 console.print(f"  [dim]· {finding_type} — {reason}[/dim]")
+            if len(discarded) > 5:
+                console.print(f"  [dim]... and {len(discarded) - 5} more (see JSON output)[/dim]")
     else:
         print("\n=== Smart Audit Results ===")
         print(f"Risk Level: {summary['risk_level']}")
@@ -1907,8 +1925,8 @@ def audit_profile(
             deduped = len(all_findings_flat) - len(enhanced)
             if deduped > 0:
                 info(f"Intelligence engine: merged {deduped} duplicate findings across tools")
-    except Exception:
-        pass  # graceful degradation
+    except Exception as e:
+        info(f"Intelligence engine skipped: {e}")
 
     summary = summarize_findings(all_results)
     total = sum(summary.values())
@@ -2184,6 +2202,30 @@ def audit_batch(
     elapsed = (datetime.now() - start_time).total_seconds()
     total_findings = sum(aggregated_summary.values())
 
+    # Cross-contract exploit chains (MEJORAS.md #5b) — only meaningful with >1 file.
+    cross_contract_chains: list[Dict[str, Any]] = []
+    if len(sol_files) > 1:
+        try:
+            from miesc.ml.protocol_graph import (
+                build_protocol_graph,
+                find_cross_contract_chains,
+                resolve_finding_contract,
+            )
+
+            protocol_graph = build_protocol_graph(sol_files)
+            findings_by_contract: Dict[str, list[Dict[str, Any]]] = {}
+            for contract_data in all_contract_results:
+                for tool_result in contract_data.get("results", []):
+                    for finding in tool_result.get("findings", []):
+                        contract = resolve_finding_contract(finding, protocol_graph)
+                        if contract:
+                            findings_by_contract.setdefault(contract, []).append(finding)
+            cross_contract_chains = find_cross_contract_chains(
+                findings_by_contract, protocol_graph
+            )
+        except Exception as e:
+            logger.debug(f"Cross-contract chain detection skipped: {e}")
+
     # Display summary
     if RICH_AVAILABLE:
         console.print("\n")
@@ -2225,6 +2267,18 @@ def audit_batch(
                         f"C:{result['summary']['CRITICAL']} H:{result['summary']['HIGH']} "
                         f"M:{result['summary']['MEDIUM']} L:{result['summary']['LOW']}"
                     )
+
+        if cross_contract_chains:
+            console.print("\n")
+            chain_table = Table(title="Cross-Contract Exploit Chains", box=box.ROUNDED)
+            chain_table.add_column("Caller")
+            chain_table.add_column("Callee")
+            chain_table.add_column("Category")
+            chain_table.add_column("Reason")
+            for chain in cross_contract_chains:
+                caller, callee = chain["contracts"]
+                chain_table.add_row(caller, callee, chain["category"], chain["reason"])
+            console.print(chain_table)
     else:
         print("\n=== Batch Analysis Summary ===")
         print(f"Contracts: {len(all_contract_results)}")
@@ -2246,6 +2300,7 @@ def audit_batch(
         "contracts_failed": len(failed_contracts),
         "aggregated_summary": aggregated_summary,
         "total_findings": total_findings,
+        "cross_contract_chains": cross_contract_chains,
         "contracts": all_contract_results,
         "failed": failed_contracts,
     }
