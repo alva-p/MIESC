@@ -140,7 +140,8 @@ class FrontierLLMAdapter(ToolAdapter):
         Initialize with provider selection.
 
         Args:
-            provider: "anthropic", "openai", or "auto" (detect from env vars)
+            provider: "anthropic", "openai", or "auto" (detect from env vars,
+                requires MIESC_ALLOW_CLOUD_LLM=1 — see _detect_provider)
         """
         self._provider = provider
         self._model: Optional[str] = None
@@ -178,7 +179,18 @@ class FrontierLLMAdapter(ToolAdapter):
         )
 
     def _detect_provider(self) -> Optional[str]:
-        """Auto-detect provider from environment variables."""
+        """Auto-detect provider from environment variables.
+
+        Requires MIESC_ALLOW_CLOUD_LLM=1 in addition to the API key: an
+        ambient ANTHROPIC_API_KEY/OPENAI_API_KEY (e.g. already exported for
+        Claude Code/Codex) must never silently send contract source to a
+        cloud API. Callers that explicitly pick a provider (e.g. `--model
+        claude`) bypass this and are unaffected — this only gates the
+        implicit "auto" path used by generic tool loaders (`audit single
+        frontier_llm`, REST/MCP tool runners).
+        """
+        if os.environ.get("MIESC_ALLOW_CLOUD_LLM") != "1":
+            return None
         if os.environ.get("ANTHROPIC_API_KEY"):
             return "anthropic"
         if os.environ.get("OPENAI_API_KEY"):
@@ -1509,29 +1521,47 @@ Respond with a JSON array."""
             )
         return self._parse_response(response.choices[0].message.content)
 
-    def _analyze_claude_code(self, source_code: str, **kwargs: Any) -> List[Dict]:
-        """Call Claude through Claude Code subscription authentication."""
+    def _analyze_claude_code(self, source_code: str, **kwargs) -> List[Dict]:
+        """Call Claude via the Claude Code CLI subprocess (subscription auth).
+
+        Transport lives in miesc/llm/cli_subscription.py — shared with
+        finding_validator.py, which uses the same CLIs for validation calls.
+        """
         from miesc.llm.cli_subscription import call_claude_cli
 
         rag_context = kwargs.pop("rag_context", "")
         model = kwargs.get("model") or "sonnet"
         self._model = model
-        prompt = self._build_user_prompt(source_code, rag_context)
-        logger.info("FrontierLLM: Calling Claude Code CLI (%s)", model)
-        return self._parse_response(
-            call_claude_cli(prompt, system_prompt=AUDIT_SYSTEM_PROMPT, model=model)
-        )
 
-    def _analyze_codex_cli(self, source_code: str, **kwargs: Any) -> List[Dict]:
-        """Call Codex through ChatGPT subscription authentication."""
+        user_prompt = self._build_user_prompt(source_code, rag_context)
+        rag_note = f" +RAG({len(rag_context)})" if rag_context else ""
+        logger.info(f"FrontierLLM: Calling Claude Code CLI ({model}, {len(source_code)} chars{rag_note})")
+
+        result_text = call_claude_cli(user_prompt, system_prompt=AUDIT_SYSTEM_PROMPT, model=model)
+        return self._parse_response(result_text)
+
+    def _analyze_codex_cli(self, source_code: str, **kwargs) -> List[Dict]:
+        """Call GPT/Codex via the Codex CLI subprocess (subscription auth).
+
+        Transport lives in miesc/llm/cli_subscription.py — shared with
+        finding_validator.py, which uses the same CLIs for validation calls.
+        """
         from miesc.llm.cli_subscription import call_codex_cli
 
         rag_context = kwargs.pop("rag_context", "")
         model = kwargs.get("model")
         self._model = model or "codex-default"
-        prompt = f"{AUDIT_SYSTEM_PROMPT}\n\n{self._build_user_prompt(source_code, rag_context)}"
-        logger.info("FrontierLLM: Calling Codex CLI (%s)", model or "default model")
-        return self._parse_response(call_codex_cli(prompt, model=model))
+
+        user_prompt = self._build_user_prompt(source_code, rag_context)
+        full_prompt = f"{AUDIT_SYSTEM_PROMPT}\n\n{user_prompt}"
+        rag_note = f" +RAG({len(rag_context)})" if rag_context else ""
+        logger.info(
+            f"FrontierLLM: Calling Codex CLI ({model or 'default model'}, "
+            f"{len(source_code)} chars{rag_note})"
+        )
+
+        result_text = call_codex_cli(full_prompt, model=model)
+        return self._parse_response(result_text)
 
     def _ensure_ollama_model(self, model: str) -> bool:
         """Check if model is available in Ollama, pull if not."""
