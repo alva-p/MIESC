@@ -384,8 +384,8 @@ def _evaluate_contract(
                 result["aggregate"]["detected_categories"].update(intel_detected)
         except ImportError:
             pass  # Intelligence engine not available
-        except Exception:
-            pass  # Graceful degradation
+        except Exception as e:
+            warning(f"Intelligence engine failed for {contract_path}: {e}")
 
     # Convert set to list for serialization
     result["aggregate"]["detected_categories"] = list(result["aggregate"]["detected_categories"])
