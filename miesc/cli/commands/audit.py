@@ -1678,14 +1678,18 @@ def audit_smart(
                     finding for finding in llm_candidates if finding not in validated_findings
                 ]
 
-            # Update result with LLM validation. Findings the LLM confirmed
-            # as false positives go into ml_filtered_out (same field the ML
-            # pattern-based filter already uses) instead of disappearing —
-            # keeps a trail of what was removed and why (see _llm_validation
-            # metadata on each one).
+            # Update result with LLM validation. validated_findings carries
+            # confidence adjustments and _llm_validation reasoning even for
+            # findings the validator kept (e.g. its 2-pass confirmation
+            # declined to discard anything) — that enrichment must survive
+            # regardless of whether anything was actually filtered out, or
+            # every successful validation run with 0 confirmed FPs silently
+            # throws away its own output. Findings confirmed as false
+            # positives additionally go into ml_filtered_out (same field the
+            # ML pattern-based filter already uses) instead of disappearing.
+            result.ml_filtered_findings = validated_findings
             if filtered_out:
                 info(f"LLM filtered {len(filtered_out)} additional false positives")
-                result.ml_filtered_findings = validated_findings
                 result.ml_filtered_out = [
                     *getattr(result, "ml_filtered_out", []),
                     *filtered_out,
