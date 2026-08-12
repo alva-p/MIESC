@@ -170,7 +170,7 @@ def doctor(verbose: bool) -> None:
         llm_table.add_column("Details", width=40)
 
         # Ollama
-        from src.core.llm_config import get_ollama_host
+        from miesc.core.llm_config import get_ollama_host
 
         ollama_host = get_ollama_host()
         try:
