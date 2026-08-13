@@ -183,7 +183,45 @@ Layer 9: Advanced Detection     [{{ layer9_coverage | default('--') }}]
 <!-- section-break -->
 
 # 3. Risk Assessment 
-## 3.1 Risk Matrix
+## 3.1 Threat Model
+
+{%- if threat_model %}
+
+**Protocol Type:** {{ threat_model.protocol_type | default('general') | title }}
+**Attack Surface Score:** {{ threat_model.attack_surface_score | default('N/A') }}/100
+**Framework:** {{ threat_model.framework | default('N/A') }}
+**Solidity Version:** {{ threat_model.risk_profile.solidity_version | default('unknown') }}
+
+**Risk Indicators:**
+- External calls present: {{ 'Yes' if threat_model.risk_profile.has_external_calls else 'No' }}
+- Inline assembly present: {{ 'Yes' if threat_model.risk_profile.has_assembly else 'No' }}
+- `selfdestruct` present: {{ 'Yes' if threat_model.risk_profile.has_selfdestruct else 'No' }}
+
+### Entry Points by Trust Level
+
+| Trust Level | Function | Modifiers |
+|---|---|---|
+{%- for entry in threat_model.entry_points.permissionless %}
+| Permissionless | `{{ entry.name }}` | {{ entry.modifiers | join(', ') if entry.modifiers else '--' }} |
+{%- endfor %}
+{%- for entry in threat_model.entry_points.role_gated %}
+| Role-gated | `{{ entry.name }}` | {{ entry.modifiers | join(', ') if entry.modifiers else '--' }} |
+{%- endfor %}
+{%- for entry in threat_model.entry_points.admin %}
+| Admin-only | `{{ entry.name }}` | {{ entry.modifiers | join(', ') if entry.modifiers else '--' }} |
+{%- endfor %}
+
+Permissionless entry points are reachable by any caller and are the natural starting point for
+an attacker's search -- the findings above should be read with that in mind. Admin-only functions
+are excluded from the external attack surface but remain a centralization/key-management risk in
+their own right.
+{%- else %}
+Threat model reconnaissance was not available for this report (the contract source could not be
+resolved, or X-Ray reconnaissance failed). Findings below are not annotated with entry-point trust
+level.
+{%- endif %}
+
+## 3.2 Risk Matrix
 
 The following matrix maps findings by **Impact** (vertical) and **Likelihood** (horizontal):
 
@@ -222,7 +260,7 @@ The following matrix maps findings by **Impact** (vertical) and **Likelihood** (
 </tr>
 </table>
 
-## 3.2 CVSS-like Scoring
+## 3.3 CVSS-like Scoring
 
 | Finding ID | Title | Base Score | Vector |
 |------------|-------|-----------|--------|
@@ -237,7 +275,7 @@ The following matrix maps findings by **Impact** (vertical) and **Likelihood** (
 - **User Interaction (UI):** None, Required
 - **Impact:** Confidentiality, Integrity, Availability
 
-## 3.3 Risk Narrative
+## 3.4 Risk Narrative
 
 {%- if llm_risk_narrative %}
 {{ llm_risk_narrative }}
@@ -302,6 +340,15 @@ The analyzed contract presents security concerns that should be addressed before
 ### Impact Analysis
 
 {{ finding.impact }}
+
+{%- if finding.happy_path %}
+
+### Happy Path
+
+*How this code is meant to behave, for contrast with the attack below.*
+
+{{ finding.happy_path }}
+{%- endif %}
 
 {%- if finding.attack_scenario %}
 
