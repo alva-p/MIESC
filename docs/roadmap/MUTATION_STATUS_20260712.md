@@ -96,9 +96,37 @@ Per-module breakdown:
 | `formal/unified_report.py`| 6       | 0        | 100.0%  |
 
 Every module individually clears 60%. `unified_report.py` kills every mutant;
-`baseline.py` is the weakest and is where test-hardening would pay off next —
-most of its survivors are in `normalize_finding` / `_normalize_path`, i.e.
-normalization edge cases the current assertions do not pin down.
+`baseline.py` was the weakest, with most survivors in `normalize_finding` /
+`_normalize_path` — normalization edge cases the assertions at the time did
+not pin down.
+
+## 2026-08-13 update: baseline.py hardening
+
+Re-ran with **mutmut 3.7.0** (newer patch release, more mutant variants
+generated than 3.6.0's run above — the 376-mutant baseline above is not
+directly comparable to the counts below).
+
+Before adding targeted tests: **319 killed + 2 timeout / 455 total = 70.5%**,
+with **104 of 134 survivors in `baseline.py`** — concentrated in exactly the
+gap the note above called out: every existing test drove `normalize_finding`
+through one dict shape (`location.file` / `location.function`), leaving
+untested: the attribute-based (non-dict) `FindingLike` branch of `_get`,
+every rule_id/message/file/symbol fallback key beyond the first, the
+`"unknown"` default, empty-string-as-missing handling, and `_normalize_path`
+edge cases (backslashes, absolute paths, dot segments).
+
+`tests/test_baseline.py` gained targeted tests for each of those gaps (see
+`TestAttributeBasedFindings`, `TestFieldFallbackKeys`,
+`TestNormalizePathEdgeCases`, `TestPrivateNormalizationHelpers`). Result:
+**415 killed + 2 timeout / 455 total = 91.6%**; `baseline.py` survivors
+dropped from 104 to 16.
+
+The remaining `baseline.py` survivors are, on inspection, genuinely
+equivalent mutants: encoding-name casing (`"utf-8"` vs `"UTF-8"` — Python's
+codec lookup is case-insensitive) and a mutated `if normalized.startswith("./")`
+check whose effect is fully subsumed by the dot-segment filter two lines
+later (`[p for p in normalized.split("/") if p not in ("", ".")]` strips a
+leading `.` either way). Not worth chasing further.
 
 ## Reproducing it
 
