@@ -140,3 +140,69 @@ class TestReportQuality:
         content = Path(out).read_text()
         # At least one of the actual tools should appear
         assert "slither" in content.lower() or "aderyn" in content.lower()
+
+
+class TestReportTemplateContract:
+    """MEJORAS.md #23/#24: templates/reports/ had two byte-diverged copies and
+    three unrelated lists of "valid templates" (constants.py, the CLI's
+    click.Choice, and its error message). Locks in that report_templates.py's
+    click.Choice matches REPORT_TEMPLATES exactly, that every listed template
+    has a real file, that docs/templates/reports is a symlink onto the
+    packaged copy (not a second directory to drift out of sync again), and
+    that the premium CSS actually loads (it used to be hardcoded to a
+    docs/-relative path that doesn't exist in a pip install).
+    """
+
+    def test_cli_choice_matches_constants(self):
+        from miesc.cli.commands.report import report
+        from miesc.cli.constants import REPORT_TEMPLATES
+
+        template_param = next(p for p in report.params if p.name == "template")
+        assert list(template_param.type.choices) == REPORT_TEMPLATES
+
+    def test_every_template_has_a_real_file(self):
+        from miesc.cli.constants import REPORT_TEMPLATES
+        from miesc.cli.utils import get_data_path
+
+        for template in REPORT_TEMPLATES:
+            path = get_data_path("templates", "reports", f"{template}.md")
+            assert path.exists(), f"{template} listed but {path} is missing"
+
+    def test_docs_templates_reports_is_a_symlink_not_a_second_copy(self):
+        from miesc.cli.utils import ROOT_DIR
+
+        docs_path = ROOT_DIR / "docs" / "templates" / "reports"
+        assert docs_path.is_symlink(), "docs/templates/reports must not be an independent copy"
+
+    def test_premium_css_loads_via_package_data(self, audit_results, tmp_path):
+        """Regression: css_path used to be hardcoded to ROOT_DIR/docs/... which
+        doesn't ship in a pip install; it must come from get_data_path()."""
+        from click.testing import CliRunner
+
+        from miesc.cli.commands.report import report
+
+        out = str(tmp_path / "report.html")
+        result = CliRunner().invoke(
+            report, [audit_results, "-t", "premium", "-o", out, "-f", "html"]
+        )
+        assert result.exit_code == 0, result.output
+        content = Path(out).read_text()
+        assert "<style" in content
+        assert "font-family" in content
+
+    def test_layer_8_uses_canonical_name_not_stale_defi_security(self, audit_results, tmp_path):
+        """Regression: the packaged copy had drifted to the pre-rename layer
+        taxonomy ("DeFi Security") while docs/ had the canonical
+        "Cross-Chain & ZK Security" from miesc/cli/constants.py."""
+        from click.testing import CliRunner
+
+        from miesc.cli.commands.report import report
+
+        out = str(tmp_path / "report.md")
+        result = CliRunner().invoke(
+            report, [audit_results, "-t", "profesional", "-o", out, "-f", "markdown"]
+        )
+        assert result.exit_code == 0, result.output
+        content = Path(out).read_text()
+        assert "Cross-Chain & ZK Security" in content
+        assert "DeFi Security" not in content

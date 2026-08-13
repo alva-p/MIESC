@@ -47,7 +47,7 @@ This document contains confidential security findings and is intended solely for
 
 <!-- section-break -->
 
-# 1. Executive Summary
+# 1. Executive Summary 
 ## 1.1 Key Takeaways
 
 {{ key_takeaways | default(llm_executive_summary | default('No AI summary available.')) }}
@@ -102,7 +102,7 @@ Based on the identified vulnerabilities:
 
 <!-- section-break -->
 
-# 2. Scope & Methodology
+# 2. Scope & Methodology 
 ## 2.1 Engagement Details
 
 | Property | Value |
@@ -182,7 +182,7 @@ Layer 9: Advanced Detection     [{{ layer9_coverage | default('--') }}]
 
 <!-- section-break -->
 
-# 3. Risk Assessment
+# 3. Risk Assessment 
 ## 3.1 Risk Matrix
 
 The following matrix maps findings by **Impact** (vertical) and **Likelihood** (horizontal):
@@ -247,7 +247,7 @@ The analyzed contract presents security concerns that should be addressed before
 
 <!-- section-break -->
 
-# 4. Findings Overview
+# 4. Findings Overview 
 ## 4.1 Summary Table
 
 | ID | Title | Severity | Confidence | Tools | Status | CVSS |
@@ -274,7 +274,7 @@ The analyzed contract presents security concerns that should be addressed before
 
 <!-- section-break -->
 
-# 5. Detailed Findings
+# 5. Detailed Findings 
 {%- for finding in findings %}
 
 ## {{ finding.id }}. {{ finding.title }}
@@ -352,7 +352,7 @@ The analyzed contract presents security concerns that should be addressed before
 
 <!-- section-break -->
 
-# 6. Remediation Roadmap
+# 6. Remediation Roadmap 
 ## 6.1 Prioritized Actions
 
 {%- if llm_enabled and llm_remediation_priority %}
@@ -435,7 +435,7 @@ Review findings marked as "Low" effort for quick security improvements.
 
 <!-- section-break -->
 
-# 7. Appendices
+# 7. Appendices 
 ## Appendix A: Tool Execution Details
 
 {%- for tool in tool_outputs %}
