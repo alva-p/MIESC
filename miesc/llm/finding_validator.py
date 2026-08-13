@@ -41,6 +41,13 @@ logger = logging.getLogger(__name__)
 MAX_VALIDATION_RESPONSE_CHARS = 50_000
 MAX_VALIDATION_JSON_KEYS = 100
 MAX_VALIDATOR_TEXT_CHARS = 100_000
+# Code snippet budget per prompt. 1500 was cutting single-contract files
+# under ~2000 chars in half (confirmed against examples/contracts/
+# ParityMultisig.sol: the real vulnerable ParityWalletLibrary contract fell
+# entirely past the cut). 6000 chars (~1500 tokens) covers most small/medium
+# files while leaving headroom in a 4096-token default Ollama context window
+# (prompt boilerplate + this snippet + num_predict response budget).
+MAX_CODE_CONTEXT_CHARS = 6_000
 MAX_BATCH_FINDINGS = 500
 MAX_AVAILABLE_MODELS = 200
 MAX_VALIDATOR_MODEL_NAME_CHARS = 128
@@ -487,7 +494,9 @@ Respond ONLY with a valid JSON object (no markdown, no extra text):
                 _safe_mapping_get(safe_finding, "message"),
                 self._parse_text(_safe_mapping_get(safe_finding, "description"), "No message"),
             )
-            code_snippet = self._prompt_text(code_context, limit=1500) or "Not available"
+            code_snippet = (
+                self._prompt_text(code_context, limit=MAX_CODE_CONTEXT_CHARS) or "Not available"
+            )
             contract_snippet = self._prompt_text(contract_context, limit=500) or "Not available"
 
             # Build prompt
@@ -602,7 +611,8 @@ Respond ONLY with a valid JSON object (no markdown, no extra text):
                 _safe_mapping_get(finding, "message"),
                 self._parse_text(_safe_mapping_get(finding, "description"), "No message"),
             ),
-            code_snippet=self._prompt_text(code_context, limit=1500) or "Not available",
+            code_snippet=self._prompt_text(code_context, limit=MAX_CODE_CONTEXT_CHARS)
+            or "Not available",
             first_reasoning=first_validation.reasoning,
         )
 
@@ -718,7 +728,9 @@ Respond ONLY with a valid JSON object (no markdown, no extra text):
                 message=_safe_mapping_get(
                     finding, "message", _safe_mapping_get(finding, "description", "No message")
                 ),
-                code_snippet=code_context[:1500] if code_context else "Not available",
+                code_snippet=(
+                    code_context[:MAX_CODE_CONTEXT_CHARS] if code_context else "Not available"
+                ),
             )
             response = await self._call_llm(prompt)
             match = re.search(r"\{[^{}]*\}", response, re.DOTALL)
@@ -1160,9 +1172,9 @@ Respond ONLY with a valid JSON object (no markdown, no extra text):
                 if isinstance(code_contexts, dict) and file_path:
                     code_context = self._parse_text(
                         _safe_mapping_get(code_contexts, file_path), ""
-                    )[:1500]
+                    )[:MAX_CODE_CONTEXT_CHARS]
                 elif snippet:
-                    code_context = snippet[:1500]
+                    code_context = snippet[:MAX_CODE_CONTEXT_CHARS]
 
                 tasks.append(self.validate_finding(finding, code_context))
 

@@ -468,6 +468,7 @@ pytest_add_cli_args_test_selection = [
     "tests/test_baseline.py",
     "tests/test_code_actions.py",
     "tests/test_unified_report.py",
+    "tests/test_counterexample_parse.py",
 ]
 pytest_add_cli_args = ["--no-cov", "-p", "no:cacheprovider"]
 timeout_multiplier = 2.0
