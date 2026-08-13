@@ -194,5 +194,15 @@ DEFAULT_TIMEOUT: int = 300
 # Output format options
 OUTPUT_FORMATS: List[str] = ["json", "sarif", "html", "pdf", "markdown"]
 
-# Report templates
-REPORT_TEMPLATES: List[str] = ["standard", "premium", "executive", "technical", "ci"]
+# Report templates. Single source of truth for `miesc report --template` (both the
+# click.Choice and its error message) -- keep in sync with the .md files actually
+# shipped in miesc/data/templates/reports/.
+REPORT_TEMPLATES: List[str] = [
+    "professional",
+    "executive",
+    "technical",
+    "github-pr",
+    "simple",
+    "profesional",
+    "premium",
+]

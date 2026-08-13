@@ -18,6 +18,7 @@ from typing import Any, Dict, Match, cast
 import click
 
 from miesc import __version__ as VERSION
+from miesc.cli.constants import REPORT_TEMPLATES
 from miesc.cli.utils import (
     RICH_AVAILABLE,
     console,
@@ -390,7 +391,7 @@ def _markdown_to_html(markdown: str, title: str, use_premium_css: bool = True) -
     # Try to load premium CSS
     css_content = ""
     if use_premium_css:
-        css_path = ROOT_DIR / "docs" / "templates" / "reports" / "profesional.css"
+        css_path = get_data_path("templates", "reports", "profesional.css")
         if css_path.exists():
             css_content = css_path.read_text(encoding="utf-8")
 
@@ -466,9 +467,7 @@ def _enhance_html_severity(html: str) -> str:
 @click.option(
     "--template",
     "-t",
-    type=click.Choice(
-        ["professional", "executive", "technical", "github-pr", "simple", "profesional", "premium"]
-    ),
+    type=click.Choice(REPORT_TEMPLATES),
     default="simple",
     help="Report template to use (premium/profesional include CVSS scores, attack scenarios, and deployment recommendations)",
 )
@@ -568,7 +567,7 @@ def report(
         template_file = get_data_path("docs", "templates", "reports", f"{template}.md")
     if not template_file.exists():
         error(f"Template not found: {template_file}")
-        info("Available templates: professional, executive, technical, github-pr, simple, premium")
+        info(f"Available templates: {', '.join(REPORT_TEMPLATES)}")
         sys.exit(1)
 
     # Load template
@@ -2034,7 +2033,7 @@ def report(
                 font_config = FontConfiguration()
 
                 # Load premium CSS if available
-                css_path = ROOT_DIR / "docs" / "templates" / "reports" / "profesional.css"
+                css_path = get_data_path("templates", "reports", "profesional.css")
                 if css_path.exists():
                     css_content = css_path.read_text(encoding="utf-8")
                     css = CSS(string=css_content, font_config=font_config)
