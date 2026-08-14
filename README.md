@@ -286,8 +286,9 @@ See [Researcher Packaging Guide](./docs/guides/RESEARCHER_PACKAGING.md) for the 
 
 ```bash
 miesc analyze Token.sol           # EVM (Solidity/Vyper) — production
-# Non-EVM (Cairo/Solana/Move/NEAR/Stellar/Algorand/Cardano) is on the ROADMAP:
-# experimental adapter code exists but is not production-validated yet.
+# Cairo/Solana/Move are wired via `miesc analyze --chain` — experimental,
+# not production-validated. NEAR/Stellar/Algorand/Cardano adapter code
+# exists but has no CLI wiring at all yet. See docs/MULTICHAIN.md.
 ```
 
 **77 vulnerability types** across 4 ecosystems, informed by real 2024-2026 exploits (zkLend $9.6M, Braavos, Wormhole $320M, Ronin $624M).
@@ -580,16 +581,18 @@ clients now live in the platform layer.
 | Chain | Status | Languages |
 |-------|--------|-----------|
 | **EVM** (Ethereum, Polygon, BSC, Arbitrum, etc.) | **Production** | Solidity, Vyper |
-| Solana | Roadmap | Rust/Anchor |
-| NEAR | Roadmap | Rust |
-| Move (Sui, Aptos) | Roadmap | Move |
-| Stellar/Soroban | Roadmap | Rust |
-| Algorand | Roadmap | TEAL, PyTeal |
-| Cardano | Roadmap | Plutus, Aiken |
-| Starknet/Cairo | Roadmap | Cairo |
+| Solana | Roadmap — wired via `miesc analyze` | Rust/Anchor |
+| Move (Sui, Aptos) | Roadmap — wired via `miesc analyze` | Move |
+| Starknet/Cairo | Roadmap — wired via `miesc analyze` | Cairo |
+| NEAR | Roadmap — not wired, no CLI command reaches it | Rust |
+| Stellar/Soroban | Roadmap — not wired, no CLI command reaches it | Rust |
+| Algorand | Roadmap — not wired, no CLI command reaches it | TEAL, PyTeal |
+| Cardano | Roadmap — not wired, no CLI command reaches it | Plutus, Aiken |
 
 > **EVM analysis (50 tools, 9 layers) is production-ready.** Non-EVM chains are on the
-> roadmap: early adapter code exists but is experimental and not yet production-validated.
+> roadmap: Solana/Move/Starknet have experimental adapter code reachable via `miesc analyze`
+> (not production-validated); NEAR/Stellar/Algorand/Cardano have adapter code with no CLI
+> wiring at all — see [docs/MULTICHAIN.md](./docs/MULTICHAIN.md) for exact command support.
 
 ---
 

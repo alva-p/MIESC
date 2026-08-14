@@ -3,12 +3,17 @@
 MIESC provides production security analysis for **EVM chains**. Support for other platforms
 is on the **roadmap**: experimental adapter code exists but is not production-validated.
 
+All non-EVM usage below goes through the `miesc analyze` command, not `miesc scan` — `scan`
+has no `--chain` option. Of the 7 non-EVM adapter files that exist in the codebase, only 3
+are actually reachable from the CLI:
+
 ## Support Levels
 
 | Level | Description |
 |-------|-------------|
 | ✅ **Production** | Full 9-layer analysis with 50 tools across 35 analysis modules. Recommended for audits. |
-| 🛣️ **Roadmap** | Experimental adapter code (pattern-based). Planned, NOT production-validated — not for security decisions yet. |
+| 🛣️ **Wired (Roadmap)** | Solana, Move, Starknet/Cairo — reachable via `miesc analyze`, pattern-based, NOT production-validated — not for security decisions yet. |
+| 💀 **Not wired** | NEAR, Stellar/Soroban, Algorand, Cardano — adapter code exists in `miesc/adapters/` but has zero production call site; `miesc analyze` does not accept these as `--chain` values today (only `ethereum\|move\|starknet\|solana`) and no other command routes to them. Only reachable by importing the adapter class directly in Python. |
 
 ## EVM Chains (Production)
 
@@ -38,9 +43,9 @@ miesc audit batch ./contracts -p thorough  # Batch audit
 
 ---
 
-## Solana (Roadmap)
+## Solana (Wired, Roadmap)
 
-**Status:** 🛣️ Roadmap - Experimental (pattern detection only)
+**Status:** 🛣️ Wired via `miesc analyze` - Experimental (pattern detection only)
 
 ### Languages
 - Rust with Anchor framework
@@ -58,7 +63,8 @@ miesc audit batch ./contracts -p thorough  # Batch audit
 
 ### Usage
 ```bash
-miesc scan program.rs --chain solana
+miesc analyze program.rs --chain solana
+miesc analyze program.rs             # auto-detected from .rs
 ```
 
 ### Limitations
@@ -69,9 +75,13 @@ miesc scan program.rs --chain solana
 
 ---
 
-## NEAR Protocol (Roadmap)
+## NEAR Protocol (Not wired)
 
-**Status:** 🛣️ Roadmap - Experimental (pattern detection only)
+**Status:** 💀 Not wired — `near_adapter.py` exists but no CLI command routes to it.
+`miesc analyze --chain near` does not exist (`analyze` only accepts
+`ethereum|move|starknet|solana`). Only reachable today by importing `NearAnalyzer` directly
+in Python; the vulnerability classes below are what the adapter's pattern matchers implement,
+not what you get by running a `miesc` command.
 
 ### Languages
 - Rust with near-sdk
@@ -86,15 +96,18 @@ miesc scan program.rs --chain solana
 - Unchecked promise results
 
 ### Usage
-```bash
-miesc scan contract.rs --chain near
+Not invocable via CLI today. Direct Python only:
+```python
+from miesc.adapters.near_adapter import NearAnalyzer
+findings = NearAnalyzer().detect_vulnerabilities(NearAnalyzer().parse(Path("contract.rs")))
 ```
 
 ---
 
-## Move (Sui/Aptos) (Roadmap)
+## Move (Sui/Aptos) (Wired, Roadmap)
 
-**Status:** 🛣️ Roadmap - Experimental (pattern detection only)
+**Status:** 🛣️ Wired via `miesc analyze` - Experimental (pattern detection only). Note: the
+CLI has a single `move` chain, not separate `sui`/`aptos` values.
 
 ### Languages
 - Move language
@@ -110,15 +123,17 @@ miesc scan contract.rs --chain near
 
 ### Usage
 ```bash
-miesc scan module.move --chain sui
-miesc scan module.move --chain aptos
+miesc analyze module.move            # auto-detected from .move
+miesc analyze module.move --chain move
 ```
 
 ---
 
-## Stellar/Soroban (Roadmap)
+## Stellar/Soroban (Not wired)
 
-**Status:** 🛣️ Roadmap - Experimental (pattern detection only)
+**Status:** 💀 Not wired — `stellar_adapter.py` exists but no CLI command routes to it.
+`miesc analyze --chain stellar` does not exist. Only reachable by importing
+`StellarAnalyzer` directly in Python.
 
 ### Languages
 - Rust with Soroban SDK
@@ -132,15 +147,19 @@ miesc scan module.move --chain aptos
 - Unsafe storage patterns
 
 ### Usage
-```bash
-miesc scan contract.rs --chain stellar
+Not invocable via CLI today. Direct Python only:
+```python
+from miesc.adapters.stellar_adapter import StellarAnalyzer
+findings = StellarAnalyzer().detect_vulnerabilities(StellarAnalyzer().parse(Path("contract.rs")))
 ```
 
 ---
 
-## Algorand (Roadmap)
+## Algorand (Not wired)
 
-**Status:** 🛣️ Roadmap - Experimental (pattern detection only)
+**Status:** 💀 Not wired — `algorand_adapter.py` exists but no CLI command routes to it.
+`miesc analyze --chain algorand` does not exist. Only reachable by importing
+`AlgorandAnalyzer` directly in Python.
 
 ### Languages
 - TEAL (assembly)
@@ -156,16 +175,19 @@ miesc scan contract.rs --chain stellar
 - Logic signature vulnerabilities
 
 ### Usage
-```bash
-miesc scan approval.teal --chain algorand
-miesc scan contract.py --chain algorand  # PyTeal
+Not invocable via CLI today. Direct Python only:
+```python
+from miesc.adapters.algorand_adapter import AlgorandAnalyzer
+findings = AlgorandAnalyzer().detect_vulnerabilities(AlgorandAnalyzer().parse(Path("approval.teal")))
 ```
 
 ---
 
-## Cardano (Roadmap)
+## Cardano (Not wired)
 
-**Status:** 🛣️ Roadmap - Experimental (pattern detection only)
+**Status:** 💀 Not wired — `cardano_adapter.py` exists but no CLI command routes to it.
+`miesc analyze --chain cardano` does not exist. Only reachable by importing
+`CardanoAnalyzer` directly in Python.
 
 ### Languages
 - Plutus (Haskell)
@@ -181,10 +203,48 @@ miesc scan contract.py --chain algorand  # PyTeal
 - Time-lock bypasses
 
 ### Usage
-```bash
-miesc scan validator.hs --chain cardano   # Plutus
-miesc scan validator.ak --chain cardano   # Aiken
+Not invocable via CLI today. Direct Python only:
+```python
+from miesc.adapters.cardano_adapter import CardanoAnalyzer
+findings = CardanoAnalyzer().detect_vulnerabilities(CardanoAnalyzer().parse(Path("validator.hs")))
 ```
+
+---
+
+## Starknet/Cairo (Wired, Roadmap)
+
+**Status:** 🛣️ Wired via `miesc analyze` - Experimental (pattern detection only)
+
+### Languages
+- Cairo
+
+### Detected Vulnerabilities
+- Felt overflow
+- L1↔L2 message handling issues
+- Storage slot collisions
+- Unchecked L1 calls
+- Caller spoofing
+- Proxy upgrade issues
+- Reentrancy
+- Access control
+- Arithmetic issues
+- Unchecked u256 operations
+- Stale Pragma oracle reads
+- Missing init guard on upgrade
+- Unchecked syscall results
+- Signature replay
+
+### Usage
+```bash
+miesc analyze Vault.cairo             # auto-detected from .cairo
+miesc analyze Vault.cairo --chain starknet
+```
+
+### Limitations
+- No symbolic execution
+- No formal verification
+- Pattern-based detection only
+- May have false positives/negatives
 
 ---
 
@@ -198,11 +258,15 @@ Use **EVM analysis** for a full security assessment:
 - Professional report generation
 
 ### For Research/Exploration
-Non-EVM analyzers are useful for:
+The 3 CLI-wired non-EVM analyzers (Solana, Move, Starknet/Cairo, via `miesc analyze`) are
+useful for:
 - Initial vulnerability scanning
 - Pattern identification
 - Security research
 - Pre-audit exploration
+
+The other 4 (NEAR, Stellar, Algorand, Cardano) require importing the adapter class directly
+in Python — there is no `miesc` command that reaches them today.
 
 **Do not rely on roadmap (non-EVM) analyzers for production security decisions.**
 
@@ -213,8 +277,8 @@ Non-EVM analyzers are useful for:
 | Phase | Chains | Target |
 |-------|--------|--------|
 | Current (v6.0.0) | EVM | Production (9 layers, 50 tools) |
-| Next | Solana, NEAR | Experimental adapters → validated analysis |
-| Later | Move, Stellar | Formal-verification research |
+| Current (v6.0.0) | Solana, Move, Starknet/Cairo | Wired via `miesc analyze`, experimental |
+| Not started | NEAR, Stellar, Algorand, Cardano | Adapter code exists, no CLI wiring yet |
 | Future | All chains | Production-grade multi-chain |
 
 ---
