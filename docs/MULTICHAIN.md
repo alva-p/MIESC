@@ -3,19 +3,20 @@
 MIESC provides production security analysis for **EVM chains**. Support for other platforms
 is on the **roadmap**: experimental adapter code exists but is not production-validated.
 
-All non-EVM usage below goes through the `miesc analyze` command, not `miesc scan` — `scan`
-has no `--chain` option. Of the 7 non-EVM adapter files that exist in the codebase, only 3
-are actually reachable from the CLI:
+All non-Solidity usage below goes through the `miesc analyze` command, not `miesc scan` —
+`scan` runs Slither/Aderyn/Solhint, all three of which reject any file that isn't `.sol`
+(confirmed: they crash or no-op on `.vy`). Of the 8 non-Solidity adapter files that exist in
+the codebase (Vyper + 7 non-EVM chains), 4 are actually reachable from the CLI:
 
 ## Support Levels
 
 | Level | Description |
 |-------|-------------|
 | ✅ **Production** | Full 9-layer analysis with 50 tools across 35 analysis modules. Recommended for audits. |
-| 🛣️ **Wired (Roadmap)** | Solana, Move, Starknet/Cairo — reachable via `miesc analyze`, pattern-based, NOT production-validated — not for security decisions yet. |
-| 💀 **Not wired** | NEAR, Stellar/Soroban, Algorand, Cardano — adapter code exists in `miesc/adapters/` but has zero production call site; `miesc analyze` does not accept these as `--chain` values today (only `ethereum\|move\|starknet\|solana`) and no other command routes to them. Only reachable by importing the adapter class directly in Python. |
+| 🛣️ **Wired (Roadmap)** | Vyper, Solana, Move, Starknet/Cairo — reachable via `miesc analyze`, pattern-based, NOT production-validated — not for security decisions yet. |
+| 💀 **Not wired** | NEAR, Stellar/Soroban, Algorand, Cardano — adapter code exists in `miesc/adapters/` but has zero production call site; `miesc analyze` does not accept these as `--chain` values today (only `ethereum\|vyper\|move\|starknet\|solana`) and no other command routes to them. Only reachable by importing the adapter class directly in Python. |
 
-## EVM Chains (Production)
+## Solidity (Production)
 
 **Status:** ✅ Production Ready
 
@@ -23,7 +24,6 @@ Supported networks: Ethereum, Polygon, BSC, Arbitrum, Optimism, Avalanche, and a
 
 ### Languages
 - Solidity (0.4.x - 0.8.x)
-- Vyper
 
 ### Capabilities
 - **50 integrated tools** across 9 defense layers
@@ -40,6 +40,45 @@ miesc scan contract.sol                    # Quick scan
 miesc audit full contract.sol              # Full 9-layer audit
 miesc audit batch ./contracts -p thorough  # Batch audit
 ```
+
+---
+
+## Vyper (Wired, Roadmap)
+
+**Status:** 🛣️ Wired via `miesc analyze` - Experimental (pattern detection only)
+
+Vyper targets the same EVM as Solidity, but Slither/Aderyn/Solhint (the tools behind
+`miesc scan`) only accept `.sol` — a `.vy` file used to reach them anyway and crash with an
+uncaught compiler exception. `miesc analyze` now routes `.vy` to a dedicated pattern-based
+Vyper adapter instead.
+
+### Languages
+- Vyper (0.2.x - 0.4.x)
+
+### Detected Vulnerabilities
+- Known-broken `@nonreentrant` lock under specific compiler versions (root cause of the
+  Curve Finance ~$70M incident, 2023-07-30 — see the official Vyper security advisory
+  GHSA-ph9x-4vc9-m2gg for the authoritative affected-version list)
+- Missing `@nonreentrant` on functions that write state and make an external call
+- `selfdestruct()` usage
+- `raw_call(..., is_delegate_call=True)` — delegatecall to a caller-influenced target
+- `create_forwarder_to` / `create_minimal_proxy_to` / `create_from_blueprint` without a
+  visible init guard (proxy front-running)
+- `tx.origin` used for authorization
+- Missing access control on state-changing `@external` functions
+- Explicit `unsafe_add`/`unsafe_sub`/`unsafe_mul`/`unsafe_div` (unchecked arithmetic)
+
+### Usage
+```bash
+miesc analyze Vault.vy             # auto-detected from .vy
+miesc analyze Vault.vy --chain vyper
+```
+
+### Limitations
+- No symbolic execution, no formal verification, pattern-based detection only
+- Does not depend on the `vyper` compiler being installed — detection is 100% source-text
+  based, since a contract's `@version` pragma frequently won't match whatever compiler
+  happens to be installed locally (verified: Vyper enforces the pragma at compile time)
 
 ---
 
@@ -258,8 +297,8 @@ Use **EVM analysis** for a full security assessment:
 - Professional report generation
 
 ### For Research/Exploration
-The 3 CLI-wired non-EVM analyzers (Solana, Move, Starknet/Cairo, via `miesc analyze`) are
-useful for:
+The 4 CLI-wired pattern-based analyzers (Vyper, Solana, Move, Starknet/Cairo, via
+`miesc analyze`) are useful for:
 - Initial vulnerability scanning
 - Pattern identification
 - Security research
@@ -277,7 +316,7 @@ in Python — there is no `miesc` command that reaches them today.
 | Phase | Chains | Target |
 |-------|--------|--------|
 | Current (v6.0.0) | EVM | Production (9 layers, 50 tools) |
-| Current (v6.0.0) | Solana, Move, Starknet/Cairo | Wired via `miesc analyze`, experimental |
+| Current (v6.0.0) | Vyper, Solana, Move, Starknet/Cairo | Wired via `miesc analyze`, experimental |
 | Not started | NEAR, Stellar, Algorand, Cardano | Adapter code exists, no CLI wiring yet |
 | Future | All chains | Production-grade multi-chain |
 
