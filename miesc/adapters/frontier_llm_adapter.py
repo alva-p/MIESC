@@ -964,6 +964,7 @@ Respond with a JSON array."""
     _PRICING = {
         "gpt-4o": (2.50, 10.00),
         "gpt-5": (1.25, 10.00),
+        "o1": (15.00, 60.00),
         "claude-sonnet-4-6": (3.00, 15.00),
         "claude-opus": (15.00, 75.00),
     }

@@ -110,6 +110,7 @@ if RICH_AVAILABLE:
             "gpt-4o",
             "gpt-4.1",
             "gpt-5",
+            "o1",
             "deepseek-v4-pro",
             "deepseek-v4-flash",
             "ollama",
@@ -506,6 +507,7 @@ def scan(
                     "gpt-4o": ("openai", "gpt-4o"),
                     "gpt-4.1": ("openai", "gpt-4.1"),
                     "gpt-5": ("openai", "gpt-5"),
+                    "o1": ("openai", "o1"),
                     # DeepSeek V4 is OpenAI-compatible; routed via the OpenAI
                     # client pointed at the DeepSeek endpoint (see env setup below).
                     "deepseek-v4-pro": ("openai", "deepseek-v4-pro"),
@@ -764,6 +766,7 @@ def scan(
                 "gpt-4o": ("openai", "gpt-4o"),
                 "gpt-4.1": ("openai", "gpt-4.1"),
                 "gpt-5": ("openai", "gpt-5"),
+                "o1": ("openai", "o1"),
                 "deepseek-v4-pro": ("openai", "deepseek-v4-pro"),
                 "deepseek-v4-flash": ("openai", "deepseek-v4-flash"),
                 "ollama": ("ollama", "qwen2.5-coder:32b"),
