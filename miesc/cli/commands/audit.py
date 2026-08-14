@@ -2061,6 +2061,17 @@ def audit_single(tool: str, contract: str, output: str | None, timeout: int) -> 
 @click.option(
     "--fail-on", type=str, default="", help="Fail on severity (comma-separated: critical,high)"
 )
+@click.option(
+    "--checkpoint",
+    type=click.Path(),
+    default=None,
+    help="Write progress to this file after each contract completes",
+)
+@click.option(
+    "--resume",
+    is_flag=True,
+    help="Skip contracts already completed in --checkpoint and continue from there",
+)
 def audit_batch(
     path: str,
     output: str | None,
@@ -2070,6 +2081,8 @@ def audit_batch(
     recursive: bool,
     pattern: str,
     fail_on: str,
+    checkpoint: str | None,
+    resume: bool,
 ) -> None:
     """Batch analysis of multiple contracts.
 
@@ -2081,6 +2094,8 @@ def audit_batch(
       miesc audit batch ./src -r --profile balanced    # Recursive with balanced profile
       miesc audit batch . -j 8 -o report.json          # 8 parallel workers
       miesc audit batch ./contracts --fail-on critical,high  # CI mode
+      miesc audit batch ./contracts --checkpoint state.json           # Save progress
+      miesc audit batch ./contracts --checkpoint state.json --resume  # Continue after a crash
     """
     print_banner()
 
@@ -2121,6 +2136,35 @@ def audit_batch(
     aggregated_summary = {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0, "INFO": 0}
     failed_contracts = []
     start_time = datetime.now()
+
+    checkpoint_path = Path(checkpoint) if checkpoint else None
+    if resume and checkpoint_path and checkpoint_path.exists():
+        try:
+            ckpt_data = json.loads(checkpoint_path.read_text())
+            all_contract_results = ckpt_data.get("contracts", [])
+            for r in all_contract_results:
+                for sev, count in r["summary"].items():
+                    aggregated_summary[sev] += count
+            done = {r["contract"] for r in all_contract_results}
+            before = len(sol_files)
+            sol_files = [f for f in sol_files if f not in done]
+            info(f"Resumed from {checkpoint_path}: {before - len(sol_files)} contracts already done, {len(sol_files)} left")
+        except Exception as e:
+            warning(f"Could not load checkpoint {checkpoint_path}: {e} — starting fresh")
+
+    def _write_checkpoint() -> None:
+        if not checkpoint_path:
+            return
+        try:
+            checkpoint_path.write_text(
+                json.dumps(
+                    {"contracts": all_contract_results, "failed": failed_contracts},
+                    indent=2,
+                    default=str,
+                )
+            )
+        except Exception as e:
+            logger.debug(f"Checkpoint write failed: {e}")
 
     def analyze_contract(contract_path: str) -> Dict[str, Any]:
         """Analyze a single contract with all tools."""
@@ -2181,6 +2225,7 @@ def audit_batch(
                         failed_contracts.append({"contract": contract, "error": str(e)})
                         console.print(f"  [red]{Path(contract).name}[/red]: error - {e}")
 
+                    _write_checkpoint()
                     progress.advance(task)
     else:
         with concurrent.futures.ThreadPoolExecutor(max_workers=parallel) as executor:
@@ -2202,6 +2247,8 @@ def audit_batch(
                 except Exception as e:
                     failed_contracts.append({"contract": contract, "error": str(e)})
                     print(f"  Error: {e}")
+
+                _write_checkpoint()
 
     elapsed = (datetime.now() - start_time).total_seconds()
     total_findings = sum(aggregated_summary.values())
