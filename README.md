@@ -567,7 +567,7 @@ report = run_full_audit("contract.sol")
 ```bash
 pip install "miesc[django]"
 python -m miesc.api.rest --host 127.0.0.1 --port 8000
-python -m src.utils.web_dashboard --results analysis/results --output analysis/dashboard
+python -m miesc.utils.web_dashboard --results analysis/results --output analysis/dashboard
 ```
 
 The open core exposes local REST/MCP automation and static report generation.
@@ -622,9 +622,9 @@ Contract.sol
  Report Generator --> JSON / SARIF / PDF / HTML / Markdown
 ```
 
-MIESC uses a dual-package architecture:
-- `miesc/` - Public API (stable, pip-installable)
-- `src/` - Internal implementation (35 analysis modules, ML pipeline, RAG, report generation)
+As of v6.0.0, MIESC ships as a single `miesc/` package — CLI, API, tool adapters, agents,
+ML pipeline, and report generation all live under one import root (the earlier `miesc/`
+façade + internal `src/` split was removed in the v6.0.0 unification).
 
 See [ARCHITECTURE.md](./docs/ARCHITECTURE.md) for the full technical design with Mermaid diagrams.
 
