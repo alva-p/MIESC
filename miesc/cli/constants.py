@@ -92,14 +92,18 @@ LAYERS: Dict[int, Dict[str, Any]] = {
     9: {
         "name": "Advanced AI Ensemble",
         "description": (
-            "Multi-LLM ensemble with consensus-based detection. Only "
-            "llmbugscanner reads the contract on its own; audit_consensus/"
-            "exploit_synthesizer/vuln_verifier/remediation_validator are "
-            "second-opinion reviewers that need another tool's findings passed "
-            "in as input (findings_map/findings kwargs) — no scan/audit command "
-            "wires that up today (audit_consensus/vuln_verifier only via MCP "
-            "server tools; exploit_synthesizer/remediation_validator have no "
-            "caller at all), so they return an empty findings list otherwise."
+            "Multi-LLM ensemble with consensus-based detection. Only llmbugscanner "
+            "reads the contract on its own; audit_consensus/exploit_synthesizer/"
+            "vuln_verifier are second-opinion reviewers over layers 1-8's findings — "
+            "MLOrchestrator.analyze() runs them in a second pass (after layers 1-8 "
+            "produce findings, feeding findings_map/findings), so `audit full` and "
+            "any other command that goes through MLOrchestrator now gets real Layer 9 "
+            "output instead of an always-empty findings list. remediation_validator "
+            "is deliberately excluded from that pass: it compares original vs. "
+            "patched source to verify a fix, a job `miesc remediate --compile "
+            "--rescan` already does natively and more rigorously (a real compile "
+            "check) — there's no original/patched distinction in a single audit "
+            "pass to feed it, so it still returns an empty findings list there."
         ),
         "tools": [
             "llmbugscanner",
