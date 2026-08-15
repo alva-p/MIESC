@@ -564,8 +564,28 @@ ZERO_RECALL_PATTERNS: Dict[str, Dict[str, Any]] = {
 }
 
 
-_TIMELOCK_REQUIRE_RE = re.compile(
-    r"require\s*\([^)]*(?:block\.timestamp|now)\s*(?:>|<|>=|<=|==|!=)[^)]*\)",
+_TIMESTAMP_CMP_RE = re.compile(r">|<|>=|<=|==|!=")
+# MEJORAS2.md #5d: real FPs (Solodit-real corpus, fouranalyzer/oyente/mev_detector)
+# showed deadline/window guards written as `if (block.timestamp >= x.startTime)`
+# just as often as `require(...)`, and often with an unrelated nested call
+# earlier in the same argument list (`require(msg.value > bid(_id) &&
+# block.timestamp <= end(_id))`) — a `[^)]*`-based regex stops at that inner
+# `)` and misses the guard entirely. Tolerates one level of nested parens
+# (covers every real case seen; a second nesting level would need a real
+# parser, not worth it for a heuristic).
+_GUARD_CALL_RE = re.compile(r"(?:require|if)\s*\((?P<body>(?:[^()]|\([^()]*\))*)\)")
+# MEJORAS2.md #5d: elapsed-time arithmetic against a stored deadline
+# (`tDiff = (block.timestamp - timeOfLastMint) / period`) is the same safe
+# idiom as a guard comparison, just not wrapped in require/if — e.g.
+# Solodit-real's MinterContract.sol dutch-auction price decay. The deadline
+# operand is often a member-access chain (`collectionPhases[id].startTime`,
+# not a bare identifier), hence `[\w.\[\]]*` rather than `\w*`.
+_TIMESTAMP_ELAPSED_RE = re.compile(
+    r"(?:block\.timestamp|now)\s*-\s*[\w.\[\]]*"
+    r"(?:Time|Start|End|Begin|Last|Period|Deadline|Expiry|Epoch|Mint|Up)[\w.\[\]]*"
+    r"|[\w.\[\]]*(?:Time|Start|End|Begin|Last|Period|Deadline|Expiry|Epoch|Mint|Up)[\w.\[\]]*"
+    r"\s*-\s*(?:block\.timestamp|now)",
+    re.IGNORECASE,
 )
 _TIMESTAMP_KEYWORDS_RE = re.compile(r"\bblock\.timestamp\b|\bnow\b")
 
@@ -636,7 +656,7 @@ def _passes_zero_recall_context_filter(
 
     if filter_name == "non_timelock_timestamp":
         # Check if block.timestamp/now usage in the source code is ONLY in
-        # require() timelock patterns. If so, suppress (not a vulnerability).
+        # require()/if() timelock guards. If so, suppress (not a vulnerability).
         has_non_timelock_usage = False
         lines = source_code.split("\n")
         for line in lines:
@@ -646,12 +666,17 @@ def _passes_zero_recall_context_filter(
             # Skip comments
             if line_stripped.startswith("//") or line_stripped.startswith("*"):
                 continue
-            # If this line is purely a require with time comparison → timelock
-            if _TIMELOCK_REQUIRE_RE.search(line_stripped):
-                # Remove require parts and check if timestamp is used elsewhere
-                without_require = re.sub(r"require\s*\([^)]*\)", "", line_stripped)
-                if not _TIMESTAMP_KEYWORDS_RE.search(without_require):
-                    continue  # This line is a pure timelock, skip it
+            # Strip out any require/if guard whose body compares a timestamp,
+            # then any elapsed-time-vs-deadline arithmetic; whatever timestamp
+            # usage remains is non-timelock (vulnerable).
+            remainder = line_stripped
+            for guard_match in _GUARD_CALL_RE.finditer(line_stripped):
+                body = guard_match.group("body")
+                if _TIMESTAMP_KEYWORDS_RE.search(body) and _TIMESTAMP_CMP_RE.search(body):
+                    remainder = remainder.replace(guard_match.group(0), "", 1)
+            remainder = _TIMESTAMP_ELAPSED_RE.sub("", remainder)
+            if not _TIMESTAMP_KEYWORDS_RE.search(remainder):
+                continue  # Only timelock guards / elapsed-time calc on this line
             # This line has timestamp in a non-timelock context → vulnerable
             has_non_timelock_usage = True
             break
@@ -873,6 +898,34 @@ def context_aware_fp_check(
     if canonical == CanonicalCategory.UNCHECKED_CALL and _OZ_IMPORT.search(source_code):
         if re.search(r"SafeERC20|safeTransfer|safeTransferFrom|safeApprove", source_code):
             return True, "Contract uses SafeERC20 for token operations"
+
+    # Rule 7 (MEJORAS2.md #5d): timestamp/time-manipulation findings where every
+    # block.timestamp/now usage in the file is a deadline/window-style guard
+    # (require/if comparison, or elapsed-time arithmetic against a stored
+    # deadline) → FP. Real risk needs the ~15s miner-manipulation margin to
+    # matter (randomness seeding, sub-minute-precision logic), which
+    # non_timelock_timestamp's scan for a NON-timelock usage still catches.
+    # `canonical` alone misses this: oyente's "time_dependency" and
+    # mev_detector's overloaded "mev_vulnerability" type (used for 17 unrelated
+    # MEV patterns) aren't in the taxonomy, so fall back to the finding's own
+    # text for those two adapters specifically — narrow enough to not swallow
+    # mev_detector's other, non-timestamp pattern types.
+    ftype_blob = (
+        f"{finding.get('type', '')} {finding.get('message', '')} "
+        f"{finding.get('description', '')}"
+    ).lower()
+    is_timestamp_finding = canonical == CanonicalCategory.TIME_MANIPULATION or (
+        "timestamp" in ftype_blob or "time_dependency" in ftype_blob or "time dependency" in ftype_blob
+    )
+    if is_timestamp_finding and source_code:
+        if not _passes_zero_recall_context_filter(
+            "non_timelock_timestamp", source_code, "block.timestamp"
+        ):
+            return (
+                True,
+                "All block.timestamp/now usage is deadline/window-guard style — "
+                "not vulnerable to the ~15s miner manipulation margin",
+            )
 
     return False, None
 

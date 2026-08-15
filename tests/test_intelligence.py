@@ -423,6 +423,52 @@ class TestContextAwareFP:
         assert is_fp is True
         assert "nonReentrant" in reason
 
+    # MEJORAS2.md #5d — Rule 7: timestamp/time-manipulation findings from
+    # adapters whose raw `type` never made it into the canonical taxonomy
+    # (oyente's "time_dependency", mev_detector's overloaded
+    # "mev_vulnerability") still get suppressed via the finding's own text,
+    # as long as every timestamp usage in the file is a deadline guard.
+    def test_oyente_time_dependency_suppressed_on_deadline_guard(self):
+        code = "function f() { require(block.timestamp <= auction.endTime); }"
+        finding = {"type": "time_dependency", "severity": "Medium", "location": {}}
+        is_fp, reason = context_aware_fp_check(finding, code)
+        assert is_fp is True
+        assert "deadline/window-guard" in reason
+
+    def test_mev_vulnerability_timestamp_message_suppressed_on_deadline_guard(self):
+        code = "function f() { if (block.timestamp <= auction.endTime) { bid(); } }"
+        finding = {
+            "type": "mev_vulnerability",
+            "message": "Logic depends on block.timestamp (miner manipulable)",
+            "description": "MEV vulnerability detected: Logic depends on block.timestamp (miner manipulable)",
+            "severity": "Medium",
+            "location": {},
+        }
+        is_fp, reason = context_aware_fp_check(finding, code)
+        assert is_fp is True
+
+    def test_mev_vulnerability_non_timestamp_pattern_not_suppressed(self):
+        # mev_detector reuses "mev_vulnerability" for 17 unrelated pattern
+        # types (front-running, slippage, oracle freshness, ...) — Rule 7
+        # must not fire just because the type string matches; it needs the
+        # finding's own text to actually mention a timestamp.
+        code = "function swap() external { _swap(amountIn); }"
+        finding = {
+            "type": "mev_vulnerability",
+            "message": "Swap function without slippage protection",
+            "description": "MEV vulnerability detected: Swap function without slippage protection",
+            "severity": "Medium",
+            "location": {},
+        }
+        is_fp, _ = context_aware_fp_check(finding, code)
+        assert is_fp is False
+
+    def test_timestamp_finding_not_suppressed_when_used_for_randomness(self):
+        code = "function f() { require(block.timestamp <= deadline); uint r = block.timestamp % 100; }"
+        finding = {"type": "use_of_block_timestamp", "severity": "Medium", "location": {}}
+        is_fp, _ = context_aware_fp_check(finding, code)
+        assert is_fp is False
+
 
 # ---------------------------------------------------------------------------
 # 5. Cross-validation tagging
@@ -916,6 +962,30 @@ class TestZeroRecallContextFilter:
             )
             is True
         )
+
+    # MEJORAS2.md #5d — real FPs from Solodit-real: deadline guards written as
+    # `if (...)` instead of `require(...)`, with an unrelated nested call
+    # earlier in the same condition, and elapsed-time arithmetic against a
+    # stored deadline. All three are the same safe idiom as a plain
+    # `require(block.timestamp > deadline)`.
+    def test_if_guard_is_suppressed(self):
+        src = "function f() { if (block.timestamp >= s.startTime && block.timestamp <= s.endTime) { mint(); } }"
+        assert _passes_zero_recall_context_filter("non_timelock_timestamp", src, src) is False
+
+    def test_if_guard_with_earlier_nested_call_is_suppressed(self):
+        src = (
+            "function f() { require(msg.value > bid(_id) && "
+            "block.timestamp <= end(_id) && open(_id) == true); }"
+        )
+        assert _passes_zero_recall_context_filter("non_timelock_timestamp", src, src) is False
+
+    def test_elapsed_time_arithmetic_is_suppressed(self):
+        src = "function f() { uint tDiff = (block.timestamp - s.startTime) / s.period; }"
+        assert _passes_zero_recall_context_filter("non_timelock_timestamp", src, src) is False
+
+    def test_timestamp_used_outside_guard_on_same_line_still_fires(self):
+        src = "function f() { if (block.timestamp > deadline) { seed = block.timestamp; } }"
+        assert _passes_zero_recall_context_filter("non_timelock_timestamp", src, src) is True
 
 
 class TestContextAwareFpCheckExtra:
