@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from miesc.core.finding_taxonomy import CanonicalCategory, normalize_finding_type
 from miesc.ml.call_graph import CallGraphBuilder
 
 # Started as the same interface-call pattern proven in
@@ -194,27 +195,49 @@ def resolve_finding_contract(finding: Dict[str, Any], graph: ProtocolGraph) -> O
     return None
 
 
-# Substring match on type/title/message — same rigor level as
-# deep_audit_agent.py's RISK_PATTERNS, not finding_taxonomy's enum (the repo
-# has two incompatible finding-type vocabularies already; adding a third
-# mapping just for this would be more risk than value).
-CROSS_CONTRACT_RISK_KEYWORDS = [
-    "access control",
-    "access-control",
-    "reentran",
-    "unchecked",
-    "oracle",
-    "flash loan",
-]
+# MEJORAS2.md backlog follow-up (found while closing "Cross-Contract
+# Reasoning vs. real protocols", PR #32): this used to be its own 6-keyword
+# text scan, deliberately not reusing finding_taxonomy's CanonicalCategory
+# to avoid a "third incompatible vocabulary". That reasoning doesn't hold up
+# against real data — CanonicalCategory is already the vocabulary
+# intelligence.py's own FP-suppression rules use (same core/ml tier,
+# triage_ranker.py already imports across this exact boundary), and the old
+# keyword list missed denial_of_service/bad_randomness/time_manipulation
+# entirely despite them being canonical categories all along. Confirmed on
+# Y2K Finance's real findings: Vault.sol's real denial_of_service findings
+# never matched any of the 6 old keywords.
+#
+# CanonicalCategory still doesn't cover MEJORAS2.md's MODERN_CATEGORIES
+# (business_logic, rounding, fee_on_transfer, erc4626 — evaluate.py's own
+# taxonomy extension, never folded back into finding_taxonomy.py) — that IS
+# a real third vocabulary, and reusing evaluate.py's version here isn't an
+# option (miesc/cli/ importing into miesc/ml/ would invert the dependency
+# direction). Kept as a small, explicit text fallback instead of leaving
+# those categories fully uncovered again.
+_MODERN_CATEGORY_KEYWORDS = {
+    "business_logic": ("business logic", "invariant", "griefing"),
+    "rounding": ("rounding", "precision loss", "loss of precision"),
+    "fee_on_transfer": ("fee-on-transfer", "fee on transfer", "deflationary token"),
+    "erc4626": ("erc4626", "eip-4626", "eip 4626", "share price", "inflation attack"),
+}
+
+# Every CanonicalCategory is a real vulnerability class worth flagging as an
+# exposure signal except OTHER (uninformative — would fire on nearly
+# everything and drown out the useful cases).
+_RISKY_CANONICAL_CATEGORIES = {c for c in CanonicalCategory if c is not CanonicalCategory.OTHER}
 
 
 def _matches_risk_keyword(finding: Dict[str, Any]) -> Optional[str]:
+    canonical = normalize_finding_type(finding)
+    if canonical in _RISKY_CANONICAL_CATEGORIES:
+        return canonical.value
+
     text = " ".join(
         str(finding.get(k, "")) for k in ("type", "title", "message")
     ).lower()
-    for kw in CROSS_CONTRACT_RISK_KEYWORDS:
-        if kw in text:
-            return kw
+    for category, keywords in _MODERN_CATEGORY_KEYWORDS.items():
+        if any(kw in text for kw in keywords):
+            return category
     return None
 
 
