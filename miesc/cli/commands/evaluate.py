@@ -62,6 +62,19 @@ SMARTBUGS_CATEGORIES = {
     "other": "other",
 }
 
+# MEJORAS2.md #2: modern DeFi vulnerability classes that dominate real 2024-2026
+# audits (per Solodit's tag frequency across 43k+ real findings) but have no
+# equivalent in SmartBugs-curated's ~2018-2020 taxonomy above. Only used by the
+# Solodit-sourced corpus (ground_truth.json), never by SmartBugs-curated corpora
+# (folder-based _load_ground_truth never produces these).
+MODERN_CATEGORIES = {
+    "business_logic": "business_logic",
+    "oracle": "oracle",
+    "rounding": "rounding",
+    "fee_on_transfer": "fee_on_transfer",
+    "erc4626": "erc4626",
+}
+
 # Category aliases (tools report different names for same vuln class)
 CATEGORY_ALIASES = {
     "reentrancy": {
@@ -150,6 +163,52 @@ CATEGORY_ALIASES = {
         "timestamp",
     },
     "other": {"other", "unknown", "unclassified", "uninitialized_storage_pointer"},
+    # MEJORAS2.md #2 — see MODERN_CATEGORIES above.
+    "business_logic": {
+        "business_logic",
+        "business-logic",
+        "logic_error",
+        "logic-error",
+        "invariant_violation",
+        "invariant-violation",
+        "griefing",
+    },
+    "oracle": {
+        "oracle",
+        "oracle_manipulation",
+        "oracle-manipulation",
+        "price_manipulation",
+        "price-manipulation",
+        "stale_price",
+        "stale-price",
+        "chainlink",
+        "price_feed",
+        "price-feed",
+    },
+    "rounding": {
+        "rounding",
+        "rounding_error",
+        "rounding-error",
+        "precision_loss",
+        "precision-loss",
+        "loss_of_precision",
+        "division_before_multiplication",
+    },
+    "fee_on_transfer": {
+        "fee_on_transfer",
+        "fee-on-transfer",
+        "deflationary_token",
+        "rebasing_token",
+    },
+    "erc4626": {
+        "erc4626",
+        "erc-4626",
+        "eip4626",
+        "eip-4626",
+        "vault_accounting",
+        "share_price_manipulation",
+        "inflation_attack",
+    },
 }
 
 
@@ -214,6 +273,13 @@ def _normalize_category(finding_type: str, title: str = "", description: str = "
         ],
         "front_running": ["front-run", "front run", "frontrun", "transaction order"],
         "time_manipulation": ["timestamp", "block.timestamp", "now)", "time manipul"],
+        # MEJORAS2.md #2 — modern categories, checked after the classic ones above
+        # so e.g. a genuine timestamp-manipulation finding isn't reclassified.
+        "oracle": ["oracle", "price feed", "chainlink", "stale price", "depeg"],
+        "rounding": ["rounding", "precision loss", "loss of precision", "round down", "round up"],
+        "fee_on_transfer": ["fee-on-transfer", "fee on transfer", "deflationary token", "rebasing token"],
+        "erc4626": ["erc4626", "eip-4626", "eip 4626", "share price", "inflation attack"],
+        "business_logic": ["business logic", "invariant", "griefing"],
     }
     for canonical, keywords in keyword_map.items():
         for kw in keywords:
@@ -223,11 +289,34 @@ def _normalize_category(finding_type: str, title: str = "", description: str = "
     return None
 
 
+def _load_ground_truth_json(manifest_path: Path, corpus_dir: Path) -> Dict[str, Set[str]]:
+    """Load ground truth from a Solodit-sourced manifest (MEJORAS2.md #1/#2).
+
+    Unlike _load_ground_truth's one-category-per-folder inference, this reads a
+    per-finding list (each with an explicit file + category, sourced from a real
+    audit report) and aggregates it into the same {contract_path: {categories}}
+    shape everything downstream already expects — so _evaluate_contract's TP/FP/FN
+    logic needs no changes, only richer ground truth per file.
+    """
+    manifest = json.loads(manifest_path.read_text())
+    ground_truth: Dict[str, Set[str]] = {}
+    for finding in manifest.get("findings", []):
+        rel_path = finding["file"]
+        if not (corpus_dir / rel_path).exists():
+            continue
+        ground_truth.setdefault(rel_path, set()).add(finding["category"])
+    return ground_truth
+
+
 def _load_ground_truth(corpus_dir: Path) -> Dict[str, Set[str]]:
     """Load ground truth from SmartBugs-curated directory structure.
 
     Returns: {contract_path: {category1, category2, ...}}
     """
+    manifest_path = corpus_dir / "ground_truth.json"
+    if manifest_path.exists():
+        return _load_ground_truth_json(manifest_path, corpus_dir)
+
     ground_truth: Dict[str, Set[str]] = {}
     for category_dir in corpus_dir.iterdir():
         if not category_dir.is_dir():

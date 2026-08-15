@@ -1,0 +1,390 @@
+{
+  "_meta": {
+    "source": "Solodit MCP (Code4rena real audit reports) \u2014 MEJORAS2.md #1/#2",
+    "built": "2026-08-14",
+    "protocols": [
+      {
+        "source": "Code4rena contest, protocol=NextGen",
+        "solodit_query": "search_findings(protocol=\"NextGen\", firms=[\"Code4rena\"])",
+        "repo": "https://github.com/code-423n4/2023-10-nextgen",
+        "findings_total": 23,
+        "findings_used": 18,
+        "excluded": "5 GAS findings (G-01..G-06 minus overlap) - not security vulnerabilities",
+        "completeness_check": "sequential numbering H-01..H-05, M-01..M-12, G-01..G-06 with zero gaps"
+      },
+      {
+        "source": "Code4rena contest, protocol=Y2K Finance",
+        "solodit_query": "search_findings(protocol=\"Y2k Finance\", firms=[\"Code4rena\"])",
+        "repo": "https://github.com/code-423n4/2022-09-y2k-finance",
+        "findings_total": 30,
+        "findings_used": 25,
+        "excluded": "5 GAS findings (G-01..G-05) - not security vulnerabilities",
+        "completeness_check": "sequential numbering H-01..H-09, M-01..M-16, G-01..G-05 with zero gaps"
+      }
+    ],
+    "note": "Ground truth = real HIGH/MEDIUM findings from complete, verified audit reports (sequential finding IDs, no gaps), not curated subsets. Categories include MODERN_CATEGORIES (business_logic, oracle, rounding, fee_on_transfer, erc4626) alongside SmartBugs categories.",
+    "known_issues": "rewards/StakingRewards.sol removed from this corpus: the peculiar adapter hangs indefinitely on it (confirmed 2x, --timeout not honored) \u2014 logged as a MEJORAS2.md finding, not fixed here."
+  },
+  "findings": [
+    {
+      "id": "H-01",
+      "file": "nextgen/MinterContract.sol",
+      "category": "reentrancy",
+      "severity": "HIGH",
+      "title": "Attacker can reenter to mint all the collection supply",
+      "protocol": "NextGen"
+    },
+    {
+      "id": "H-02",
+      "file": "nextgen/AuctionDemo.sol",
+      "category": "business_logic",
+      "severity": "HIGH",
+      "title": "Attacker can drain all ETH from AuctionDemo when block.timestamp == auctionEndTime",
+      "protocol": "NextGen"
+    },
+    {
+      "id": "H-03",
+      "file": "nextgen/AuctionDemo.sol",
+      "category": "denial_of_service",
+      "severity": "HIGH",
+      "title": "Adversary can block claimAuction() due to push-strategy",
+      "protocol": "NextGen"
+    },
+    {
+      "id": "H-04",
+      "file": "nextgen/MinterContract.sol",
+      "category": "denial_of_service",
+      "severity": "HIGH",
+      "title": "Multiple mints can brick any form of salesOption 3 mintings",
+      "protocol": "NextGen"
+    },
+    {
+      "id": "H-05",
+      "file": "nextgen/AuctionDemo.sol",
+      "category": "denial_of_service",
+      "severity": "HIGH",
+      "title": "Permanent DoS due to non-shrinking array usage in an unbounded loop",
+      "protocol": "NextGen"
+    },
+    {
+      "id": "M-01",
+      "file": "nextgen/MinterContract.sol",
+      "category": "business_logic",
+      "severity": "MEDIUM",
+      "title": "MinterContract::payArtist can result in double the intended payout",
+      "protocol": "NextGen"
+    },
+    {
+      "id": "M-02",
+      "file": "nextgen/RandomizerVRF.sol",
+      "category": "bad_randomness",
+      "severity": "MEDIUM",
+      "title": "The RandomizerVRF and RandomizerRNG do not produce hash value",
+      "protocol": "NextGen"
+    },
+    {
+      "id": "M-02",
+      "file": "nextgen/RandomizerRNG.sol",
+      "category": "bad_randomness",
+      "severity": "MEDIUM",
+      "title": "The RandomizerVRF and RandomizerRNG do not produce hash value",
+      "protocol": "NextGen"
+    },
+    {
+      "id": "M-03",
+      "file": "nextgen/NextGenCore.sol",
+      "category": "business_logic",
+      "severity": "MEDIUM",
+      "title": "Vulnerability in burnToMint function allows double use of NFT",
+      "protocol": "NextGen"
+    },
+    {
+      "id": "M-04",
+      "file": "nextgen/MinterContract.sol",
+      "category": "business_logic",
+      "severity": "MEDIUM",
+      "title": "User that mints on last block.timestamp mints at unexpected price",
+      "protocol": "NextGen"
+    },
+    {
+      "id": "M-05",
+      "file": "nextgen/AuctionDemo.sol",
+      "category": "business_logic",
+      "severity": "MEDIUM",
+      "title": "Auction payout goes to AuctionDemo contract owner, not the token owner",
+      "protocol": "NextGen"
+    },
+    {
+      "id": "M-06",
+      "file": "nextgen/NextGenCore.sol",
+      "category": "access_control",
+      "severity": "MEDIUM",
+      "title": "Artist signatures can be forged to impersonate the artist behind a collection",
+      "protocol": "NextGen"
+    },
+    {
+      "id": "M-07",
+      "file": "nextgen/AuctionDemo.sol",
+      "category": "denial_of_service",
+      "severity": "MEDIUM",
+      "title": "Auction winner can prevent payments via safeTransferFrom callback",
+      "protocol": "NextGen"
+    },
+    {
+      "id": "M-08",
+      "file": "nextgen/MinterContract.sol",
+      "category": "business_logic",
+      "severity": "MEDIUM",
+      "title": "If an airdrop happens before a mint the price could skyrocket",
+      "protocol": "NextGen"
+    },
+    {
+      "id": "M-09",
+      "file": "nextgen/MinterContract.sol",
+      "category": "rounding",
+      "severity": "MEDIUM",
+      "title": "getPrice salesOption 2 can round down to the lower barrier",
+      "protocol": "NextGen"
+    },
+    {
+      "id": "M-10",
+      "file": "nextgen/AuctionDemo.sol",
+      "category": "denial_of_service",
+      "severity": "MEDIUM",
+      "title": "Bidder Funds Can Become Unrecoverable Due to 1 second Overlap",
+      "protocol": "NextGen"
+    },
+    {
+      "id": "M-11",
+      "file": "nextgen/AuctionDemo.sol",
+      "category": "unchecked_low_level_calls",
+      "severity": "MEDIUM",
+      "title": "Unchecked return value of low-level call()/delegatecall()",
+      "protocol": "NextGen"
+    },
+    {
+      "id": "M-11",
+      "file": "nextgen/MinterContract.sol",
+      "category": "unchecked_low_level_calls",
+      "severity": "MEDIUM",
+      "title": "Unchecked return value of low-level call()/delegatecall()",
+      "protocol": "NextGen"
+    },
+    {
+      "id": "M-11",
+      "file": "nextgen/RandomizerRNG.sol",
+      "category": "unchecked_low_level_calls",
+      "severity": "MEDIUM",
+      "title": "Unchecked return value of low-level call()/delegatecall()",
+      "protocol": "NextGen"
+    },
+    {
+      "id": "M-12",
+      "file": "nextgen/MinterContract.sol",
+      "category": "business_logic",
+      "severity": "MEDIUM",
+      "title": "User funds sent in excess are not refunded",
+      "protocol": "NextGen"
+    },
+    {
+      "id": "H-01",
+      "file": "y2k-finance/src/oracles/PegOracle.sol",
+      "category": "oracle",
+      "severity": "HIGH",
+      "title": "Incorrect handling of pricefeed.decimals()",
+      "protocol": "Y2K Finance"
+    },
+    {
+      "id": "H-01",
+      "file": "y2k-finance/src/Controller.sol",
+      "category": "oracle",
+      "severity": "HIGH",
+      "title": "Incorrect handling of pricefeed.decimals()",
+      "protocol": "Y2K Finance"
+    },
+    {
+      "id": "H-02",
+      "file": "y2k-finance/src/Controller.sol",
+      "category": "denial_of_service",
+      "severity": "HIGH",
+      "title": "End epoch cannot be triggered preventing winners to withdraw",
+      "protocol": "Y2K Finance"
+    },
+    {
+      "id": "H-03",
+      "file": "y2k-finance/src/oracles/PegOracle.sol",
+      "category": "oracle",
+      "severity": "HIGH",
+      "title": "A design flaw in the case of using 2 oracles (aka PegOracle)",
+      "protocol": "Y2K Finance"
+    },
+    {
+      "id": "H-04",
+      "file": "y2k-finance/src/Controller.sol",
+      "category": "business_logic",
+      "severity": "HIGH",
+      "title": "Users who deposit in one vault can lose all deposits when counterparty vault has no deposits",
+      "protocol": "Y2K Finance"
+    },
+    {
+      "id": "H-04",
+      "file": "y2k-finance/src/Vault.sol",
+      "category": "business_logic",
+      "severity": "HIGH",
+      "title": "Users who deposit in one vault can lose all deposits when counterparty vault has no deposits",
+      "protocol": "Y2K Finance"
+    },
+    {
+      "id": "H-05",
+      "file": "y2k-finance/src/oracles/PegOracle.sol",
+      "category": "rounding",
+      "severity": "HIGH",
+      "title": "LOSS OF PRECISION RESULTING IN WRONG VALUE FOR PRICE RATIO",
+      "protocol": "Y2K Finance"
+    },
+    {
+      "id": "H-06",
+      "file": "y2k-finance/src/SemiFungibleVault.sol",
+      "category": "business_logic",
+      "severity": "HIGH",
+      "title": "Griefing attack on the Vaults is possible, withdrawing the winning side stakes",
+      "protocol": "Y2K Finance"
+    },
+    {
+      "id": "H-06",
+      "file": "y2k-finance/src/Vault.sol",
+      "category": "business_logic",
+      "severity": "HIGH",
+      "title": "Griefing attack on the Vaults is possible, withdrawing the winning side stakes",
+      "protocol": "Y2K Finance"
+    },
+    {
+      "id": "H-08",
+      "file": "y2k-finance/src/Vault.sol",
+      "category": "erc4626",
+      "severity": "HIGH",
+      "title": "Vault.sol is not EIP-4626 compliant",
+      "protocol": "Y2K Finance"
+    },
+    {
+      "id": "H-08",
+      "file": "y2k-finance/src/SemiFungibleVault.sol",
+      "category": "erc4626",
+      "severity": "HIGH",
+      "title": "Vault.sol is not EIP-4626 compliant",
+      "protocol": "Y2K Finance"
+    },
+    {
+      "id": "H-09",
+      "file": "y2k-finance/src/Controller.sol",
+      "category": "oracle",
+      "severity": "HIGH",
+      "title": "Depeg event can happen at incorrect price",
+      "protocol": "Y2K Finance"
+    },
+    {
+      "id": "M-01",
+      "file": "y2k-finance/src/VaultFactory.sol",
+      "category": "oracle",
+      "severity": "MEDIUM",
+      "title": "Oracle is tracked per token instead of per pair, leading to surprise results",
+      "protocol": "Y2K Finance"
+    },
+    {
+      "id": "M-02",
+      "file": "y2k-finance/src/SemiFungibleVault.sol",
+      "category": "fee_on_transfer",
+      "severity": "MEDIUM",
+      "title": "Fee-on-Transfer tokens cause problems in multiple places",
+      "protocol": "Y2K Finance"
+    },
+    {
+      "id": "M-02",
+      "file": "y2k-finance/src/Controller.sol",
+      "category": "fee_on_transfer",
+      "severity": "MEDIUM",
+      "title": "Fee-on-Transfer tokens cause problems in multiple places",
+      "protocol": "Y2K Finance"
+    },
+    {
+      "id": "M-04",
+      "file": "y2k-finance/src/Vault.sol",
+      "category": "rounding",
+      "severity": "MEDIUM",
+      "title": "receiver and treasury can receive nothing due to division before multiplication",
+      "protocol": "Y2K Finance"
+    },
+    {
+      "id": "M-06",
+      "file": "y2k-finance/src/Vault.sol",
+      "category": "business_logic",
+      "severity": "MEDIUM",
+      "title": "Fees are taken on risk collateral",
+      "protocol": "Y2K Finance"
+    },
+    {
+      "id": "M-07",
+      "file": "y2k-finance/src/Vault.sol",
+      "category": "denial_of_service",
+      "severity": "MEDIUM",
+      "title": "User funds lost because they can't withdraw funds before epoch startTime",
+      "protocol": "Y2K Finance"
+    },
+    {
+      "id": "M-08",
+      "file": "y2k-finance/src/Vault.sol",
+      "category": "denial_of_service",
+      "severity": "MEDIUM",
+      "title": "timewindow can be changed unexpectedly that blocks users from calling deposit",
+      "protocol": "Y2K Finance"
+    },
+    {
+      "id": "M-08",
+      "file": "y2k-finance/src/VaultFactory.sol",
+      "category": "denial_of_service",
+      "severity": "MEDIUM",
+      "title": "timewindow can be changed unexpectedly that blocks users from calling deposit",
+      "protocol": "Y2K Finance"
+    },
+    {
+      "id": "M-13",
+      "file": "y2k-finance/src/oracles/PegOracle.sol",
+      "category": "oracle",
+      "severity": "MEDIUM",
+      "title": "Different Oracle issues can return outdated prices",
+      "protocol": "Y2K Finance"
+    },
+    {
+      "id": "M-13",
+      "file": "y2k-finance/src/Controller.sol",
+      "category": "oracle",
+      "severity": "MEDIUM",
+      "title": "Different Oracle issues can return outdated prices",
+      "protocol": "Y2K Finance"
+    },
+    {
+      "id": "M-14",
+      "file": "y2k-finance/src/VaultFactory.sol",
+      "category": "access_control",
+      "severity": "MEDIUM",
+      "title": "It's possible to change for Vault and lost control on it",
+      "protocol": "Y2K Finance"
+    },
+    {
+      "id": "M-14",
+      "file": "y2k-finance/src/Controller.sol",
+      "category": "access_control",
+      "severity": "MEDIUM",
+      "title": "It's possible to change for Vault and lost control on it",
+      "protocol": "Y2K Finance"
+    },
+    {
+      "id": "M-16",
+      "file": "y2k-finance/src/VaultFactory.sol",
+      "category": "access_control",
+      "severity": "MEDIUM",
+      "title": "function changeController() has rug potential",
+      "protocol": "Y2K Finance"
+    }
+  ]
+}
