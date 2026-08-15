@@ -16,6 +16,7 @@ License: AGPL-3.0
 from __future__ import annotations
 
 import json
+import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
@@ -227,6 +228,79 @@ class TestEvaluateContract:
                 use_intelligence=False,
             )
         assert result["aggregate"]["findings_count"] == 0
+
+    def _isolated_contract(self) -> Path:
+        """A contract path outside pytest's tmp_path tree.
+
+        tmp_path-based fixtures (like `corpus`) live under
+        .../pytest-of-<user>/pytest-N/test_<name>0/... - and "pytest"
+        itself contains "test", which trips FalsePositiveFilter's
+        test/mock-file heuristic regardless of the actual finding. That's
+        the filter working as designed, just colliding with pytest's own
+        naming - so these two tests need a path it won't misread.
+        """
+        root = Path(tempfile.mkdtemp()) / "reentrancy"
+        root.mkdir(parents=True)
+        contract = root / "vuln.sol"
+        contract.write_text(
+            "pragma solidity ^0.4.24;\ncontract A { function f() public {} }\n",
+            encoding="utf-8",
+        )
+        return contract
+
+    def test_fp_filter_suppresses_informational_finding(self):
+        """MEJORAS2.md #5a: the 270+-pattern FalsePositiveFilter, previously
+        wired into scan/audit full but not evaluate_corpus/ablation, must now
+        actually remove a category from the match set - not just get computed
+        and ignored. Uses severity=info, which FalsePositiveFilter's medium
+        preset always treats as a FP (filter_informational=True) - a
+        deterministic trigger that doesn't depend on regex/confidence
+        arithmetic.
+        """
+        contract = self._isolated_contract()
+
+        def _fake(layer_num, contract_path, timeout):
+            return [
+                {
+                    "tool": "tool_1",
+                    "status": "ok",
+                    "findings": [
+                        {"type": "reentrancy-eth", "description": "", "severity": "info"}
+                    ],
+                }
+            ]
+
+        with patch("miesc.cli.commands.evaluate.run_layer", side_effect=_fake):
+            result = _evaluate_contract(
+                contract,
+                {"reentrancy"},
+                [1],
+                timeout=1,
+                skip_unavailable=True,
+                use_intelligence=True,
+            )
+        assert "reentrancy" not in result["match"]["tp"]
+        assert result["match"]["fn"] == ["reentrancy"]
+
+    def test_fp_filter_keeps_real_finding(self):
+        """Recall-safety companion to the suppression test above: a
+        medium-severity finding with no safe-library/safe-pattern signal must
+        survive the new filter untouched."""
+        contract = self._isolated_contract()
+
+        with patch(
+            "miesc.cli.commands.evaluate.run_layer",
+            side_effect=_layer_returning("reentrancy-eth"),
+        ):
+            result = _evaluate_contract(
+                contract,
+                {"reentrancy"},
+                [1],
+                timeout=1,
+                skip_unavailable=True,
+                use_intelligence=True,
+            )
+        assert "reentrancy" in result["match"]["tp"]
 
 
 class TestRunAblation:
