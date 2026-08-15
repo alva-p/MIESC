@@ -20,10 +20,26 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from miesc.ml.call_graph import CallGraphBuilder
 
-# Same interface-call patterns already proven in
-# frontier_llm_adapter.py::_preprocess_codebase for spotting cross-contract calls.
-INTERFACE_CALL_PATTERN = re.compile(r"I(\w+)\((\w+)\)\.(\w+)\(")
+# Started as the same interface-call pattern proven in
+# frontier_llm_adapter.py::_preprocess_codebase for spotting cross-contract
+# calls, but that one requires a literal "I" prefix (`IFoo(x).bar()`) — real
+# code just as often calls a sibling contract via its concrete type
+# (`Vault(x).bar()`, no "I"). Any capitalized identifier now qualifies; the
+# resolution below already checks both the I-prefixed and bare form against
+# known contract names, so this needed no further changes there.
+INTERFACE_CALL_PATTERN = re.compile(r"\b([A-Z]\w*)\((\w+)\)\.(\w+)\(")
 IMPORT_PATTERN = re.compile(r"import\s+(?:\{[^}]+\}\s+from\s+)?\"([^\"]+)\"")
+
+# `Vault vault = Vault(vaultAddress);` then `vault.tokenInsured();` on a later
+# line — cast-to-a-local-variable is at least as common in real code as the
+# inline-chained `Vault(vaultAddress).tokenInsured()` INTERFACE_CALL_PATTERN
+# above catches, and was completely invisible before this: confirmed on Y2K
+# Finance's real Controller.sol, where 6 of the protocol's real audit
+# findings involve exactly this Controller->Vault relationship, written this
+# way throughout. `\1` requires the declared type and the cast target to
+# match (rules out e.g. `Foo x = Bar(y)` upcasts/wraps).
+TYPED_LOCAL_ASSIGNMENT_PATTERN = re.compile(r"\b([A-Z]\w*)\s+(\w+)\s*=\s*\1\s*\(")
+LOCAL_VAR_CALL_PATTERN = re.compile(r"\b(\w+)\.(\w+)\(")
 
 
 @dataclass
@@ -89,16 +105,44 @@ def build_protocol_graph(file_paths: List[str]) -> ProtocolGraph:
             if resolved is None:
                 graph.unresolved_imports.append(imp)
 
-    # Cross-contract call edges: for each contract's source, find interface-style
-    # calls (`IVault(x).withdraw()`) whose captured type name matches a known contract.
+    # Cross-contract call edges: for each contract's source, find type-cast
+    # calls (`IVault(x).withdraw()` or the equally common `Vault(x).withdraw()`
+    # with no "I") whose captured type name matches a known contract.
     known_names = set(graph.contracts.keys())
+
+    def _resolve_type_candidates(captured: str) -> set:
+        candidates = {captured}
+        # Standard interface naming (capital "I" + another capital, e.g.
+        # "IVault", "IERC20" — not "Interest") <-> its concrete counterpart
+        # resolve to each other either direction.
+        if len(captured) > 1 and captured[0] == "I" and captured[1].isupper():
+            candidates.add(captured[1:])
+        else:
+            candidates.add(f"I{captured}")
+        return candidates & known_names
+
     for contract_name, info in graph.contracts.items():
-        for m in INTERFACE_CALL_PATTERN.finditer(info["source"]):
-            target_type = f"I{m.group(1)}"
-            candidates = {target_type, m.group(1)} & known_names
-            for target in candidates:
+        source = info["source"]
+        for m in INTERFACE_CALL_PATTERN.finditer(source):
+            for target in _resolve_type_candidates(m.group(1)):
                 if target != contract_name:
                     graph.call_edges.append((contract_name, target))
+
+        # Second pass: `Vault vault = Vault(addr); ... vault.foo();` — cast to
+        # a local variable, called on a later line. Build var name -> type for
+        # this contract's source, then scan for calls on those variable names.
+        var_types = {
+            var_name: type_name
+            for type_name, var_name in TYPED_LOCAL_ASSIGNMENT_PATTERN.findall(source)
+        }
+        if var_types:
+            for m in LOCAL_VAR_CALL_PATTERN.finditer(source):
+                type_name = var_types.get(m.group(1))
+                if type_name is None:
+                    continue
+                for target in _resolve_type_candidates(type_name):
+                    if target != contract_name:
+                        graph.call_edges.append((contract_name, target))
 
     # Storage-risk heuristic: derived contract whose (resolved) base looks
     # upgradeable but has no __gap anywhere in the base's own source.

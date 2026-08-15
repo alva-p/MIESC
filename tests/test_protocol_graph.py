@@ -106,6 +106,64 @@ class TestBuildProtocolGraph:
         assert ("Derived", "Base") in graph.inheritance_edges
         assert ("Router", "Derived") in graph.call_edges
 
+    # MEJORAS2.md backlog (Cross-Contract Reasoning vs. real protocols):
+    # found while testing against a real audit (Y2K Finance) — the synthetic
+    # fixture above only ever exercised the "I"-prefixed inline-call form.
+    def test_concrete_type_inline_call_no_i_prefix(self, tmp_path):
+        (tmp_path / "Vault.sol").write_text(
+            "pragma solidity ^0.8.0;\ncontract Vault { function foo() external {} }\n"
+        )
+        (tmp_path / "Controller.sol").write_text(
+            "pragma solidity ^0.8.0;\n"
+            "contract Controller {\n"
+            "    function bar(address a) external { Vault(a).foo(); }\n"
+            "}\n"
+        )
+        graph = build_protocol_graph(
+            [str(tmp_path / "Vault.sol"), str(tmp_path / "Controller.sol")]
+        )
+        assert ("Controller", "Vault") in graph.call_edges
+
+    def test_typed_local_variable_cast_then_call(self, tmp_path):
+        # `Vault vault = Vault(vaultAddress); ... vault.foo();` — cast to a
+        # local variable, called on a later line. Real pattern confirmed on
+        # Y2K Finance's Controller.sol (6 real audit findings involve
+        # exactly this Controller->Vault relationship).
+        (tmp_path / "Vault.sol").write_text(
+            "pragma solidity ^0.8.0;\ncontract Vault { function foo() external {} }\n"
+        )
+        (tmp_path / "Controller.sol").write_text(
+            "pragma solidity ^0.8.0;\n"
+            "contract Controller {\n"
+            "    function bar(address a) external {\n"
+            "        Vault vault = Vault(a);\n"
+            "        vault.foo();\n"
+            "    }\n"
+            "}\n"
+        )
+        graph = build_protocol_graph(
+            [str(tmp_path / "Vault.sol"), str(tmp_path / "Controller.sol")]
+        )
+        assert ("Controller", "Vault") in graph.call_edges
+
+    def test_typed_local_call_does_not_confuse_unrelated_variable_calls(self, tmp_path):
+        # A call on a variable never assigned via a typed cast must not
+        # produce a spurious edge just because some OTHER known contract
+        # name exists in the file set.
+        (tmp_path / "Vault.sol").write_text(
+            "pragma solidity ^0.8.0;\ncontract Vault { function foo() external {} }\n"
+        )
+        (tmp_path / "Controller.sol").write_text(
+            "pragma solidity ^0.8.0;\n"
+            "contract Controller {\n"
+            "    function bar(SomeToken token) external { token.transfer(msg.sender, 1); }\n"
+            "}\n"
+        )
+        graph = build_protocol_graph(
+            [str(tmp_path / "Vault.sol"), str(tmp_path / "Controller.sol")]
+        )
+        assert graph.call_edges == []
+
     def test_unresolved_package_import_does_not_crash(self, tmp_path):
         (tmp_path / "Token.sol").write_text(
             'pragma solidity ^0.8.0;\n'
