@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from miesc.agents.xray_agent import run_xray
 from miesc.ml.call_graph import CallGraphBuilder
 from miesc.ml.protocol_graph import (
@@ -256,6 +258,42 @@ class TestFindCrossContractChains:
         finding = {"id": "f1", "type": "style", "message": "naming convention violation"}
         chains = find_cross_contract_chains({"Derived": [finding]}, graph)
         assert chains == []
+
+    # MEJORAS2.md backlog follow-up (PR #32's own "found, not fixed" list):
+    # the old 6-keyword text scan missed denial_of_service/bad_randomness/
+    # time_manipulation entirely despite them being real CanonicalCategory
+    # values — confirmed on Y2K Finance's real findings. Now goes through
+    # finding_taxonomy's shared vocabulary instead of a 4th ad-hoc list.
+    @pytest.mark.parametrize(
+        "finding_type",
+        ["dos", "weak-randomness", "timestamp", "unchecked-lowlevel"],
+    )
+    def test_previously_uncovered_canonical_categories_now_produce_chains(
+        self, tmp_path, finding_type
+    ):
+        paths = _write_fixture(tmp_path)
+        graph = build_protocol_graph(paths)
+        finding = {"id": "f1", "type": finding_type}
+        chains = find_cross_contract_chains({"Derived": [finding]}, graph)
+        assert len(chains) == 1
+
+    def test_modern_category_not_in_canonical_taxonomy_still_matches_via_fallback(
+        self, tmp_path
+    ):
+        # business_logic/rounding/fee_on_transfer/erc4626 (evaluate.py's
+        # MODERN_CATEGORIES) have no CanonicalCategory equivalent at all —
+        # kept covered via a small explicit text fallback instead of
+        # silently dropping them again.
+        paths = _write_fixture(tmp_path)
+        graph = build_protocol_graph(paths)
+        finding = {
+            "id": "f1",
+            "type": "unknown",
+            "title": "Users lose all deposits due to a business logic flaw",
+        }
+        chains = find_cross_contract_chains({"Derived": [finding]}, graph)
+        assert len(chains) == 1
+        assert chains[0]["category"] == "business_logic"
 
     def test_no_call_edge_produces_no_chain(self, tmp_path):
         graph = build_protocol_graph(_write_fixture(tmp_path))
