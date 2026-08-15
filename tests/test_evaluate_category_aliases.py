@@ -13,6 +13,28 @@ def test_smartbugs_access_control_aliases_from_intelligence_patterns():
     assert _normalize_category("confused_comparison") == "access_control"
 
 
+class TestTimestampNotShadowedByRandomness:
+    """MEJORAS2.md #4 — found while measuring the corpus-completion fix's real
+    impact: once Slither could actually compile a real multi-file contract
+    (MinterContract.sol), its own "timestamp" detector (SWC-116, unambiguously
+    time_manipulation) started resolving to bad_randomness instead. Cause:
+    bad_randomness's CATEGORY_ALIASES included "block.timestamp", which
+    normalizes to "block_timestamp" — and the substring check matched
+    "timestamp" as a substring of that before time_manipulation's own exact
+    "timestamp" alias was ever reached (bad_randomness is checked first)."""
+
+    def test_bare_timestamp_type_is_time_manipulation(self):
+        assert _normalize_category("timestamp") == "time_manipulation"
+
+    def test_blockhash_is_still_bad_randomness(self):
+        assert _normalize_category("blockhash") == "bad_randomness"
+
+    def test_genuine_bad_randomness_types_unaffected(self):
+        assert _normalize_category("bad_randomness") == "bad_randomness"
+        assert _normalize_category("weak-randomness") == "bad_randomness"
+        assert _normalize_category("weak-prng") == "bad_randomness"
+
+
 class TestModernCategories:
     """MEJORAS2.md #2 — categories real 2022+ DeFi audits actually report,
     absent from SmartBugs-curated's ~2018-2020 taxonomy."""

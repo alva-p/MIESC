@@ -42,18 +42,38 @@ alongside this corpus (`business_logic`, `oracle`, `rounding`,
 taxonomy (SmartBugs-curated is ~2018-2020 research) misses most of what
 actually shows up in real 2022+ DeFi audits.
 
-## Known limitation: Slither/Aderyn couldn't fully compile this corpus
+## Known limitation: Slither/Aderyn couldn't fully compile this corpus (partially resolved)
 
-MIESC's Slither/Aderyn adapters copy the single target file into an isolated
-temp directory before invoking the compiler — they do not preserve sibling
-files or `lib/`/remapping context. Every file in this corpus that imports
-another project file (OpenZeppelin, Solmate, Chainlink, or even a sibling
-interface in the same original repo) fails to compile for those two tools
-specifically; other tools (pattern-based: fouranalyzer, smartbugs_detector,
-peculiar, threat_model, gas_analyzer, etc.) are unaffected and still ran.
-This is a real MIESC limitation surfaced by testing against genuine
-multi-file audited code (SmartBugs-curated's single-file, dependency-free
-contracts never exercise it) — logged as a new finding, not fixed here.
+Originally diagnosed (2026-08-14) as MIESC's Slither/Aderyn adapters copying
+only the target file into an isolated temp directory, dropping sibling
+imports. Re-investigated 2026-08-15 (MEJORAS2.md #4) with a controlled test —
+that diagnosis was wrong for Slither (its `force_solc` path already operates
+on the real file/directory) and only half-right for Aderyn (it genuinely did
+copy only the target file; fixed to walk the transitive relative-import graph
+instead — see `AderynAdapter._resolve_relative_imports`). The real,
+dominant cause for **this corpus specifically**: `nextgen/`'s files import
+sibling interfaces and locally-vendored OpenZeppelin copies
+(`Ownable.sol`, `IERC721.sol`, etc.) that were never included here in the
+first place — deliberately, per this corpus's own "official in-scope files
+only" methodology above. Slither/Aderyn need the full compile-time closure
+even though most of those files aren't graded.
+
+`nextgen/AuctionDemo.sol` and `nextgen/MinterContract.sol`'s dependency
+closures were fetched from the original repo
+(`code-423n4/2023-10-nextgen`, `smart-contracts/`) and added here
+(`IMinterContract.sol`, `IERC721.sol`, `Ownable.sol`, `INextGenAdmins.sol`,
+`IERC165.sol`, `Context.sol`, `INextGenCore.sol`,
+`IDelegationManagementContract.sol`, `MerkleProof.sol` — none of these are
+graded findings sources, they exist only so Slither/Aderyn can compile the
+two files above) to measure real impact before completing the rest.
+**Measured impact: ~0.** Both files' TP counts were unchanged before/after
+(everything Slither/Aderyn found once compiling was already caught by
+pattern-based tools); `AuctionDemo.sol` lost 1 FP, `MinterContract.sol`
+netted zero change. The remaining 6 `nextgen/` files' dependencies were
+**not** fetched — the measured return doesn't justify it. Other tools
+(pattern-based: fouranalyzer, smartbugs_detector, peculiar, threat_model,
+gas_analyzer, etc.) were never affected by any of this and still ran on
+every file.
 
 ## Licensing
 
