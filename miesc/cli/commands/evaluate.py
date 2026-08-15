@@ -377,6 +377,13 @@ def _evaluate_contract(
         "timing": {},
     }
 
+    # Raw, unfiltered categories - used as a fallback if intelligence/FP
+    # filtering below doesn't run (use_intelligence=False or unreadable
+    # source). Kept separate from result["aggregate"]["detected_categories"]
+    # so that set can be replaced (not just unioned into) by the filtered
+    # view once it's available.
+    raw_detected_categories: Set[str] = set()
+
     for layer_num in layers:
         layer_start = time.perf_counter()
         try:
@@ -416,8 +423,14 @@ def _evaluate_contract(
             "time_seconds": round(layer_elapsed, 3),
         }
 
-        result["aggregate"]["detected_categories"].update(layer_detected)
+        raw_detected_categories.update(layer_detected)
         result["aggregate"]["all_findings"].extend(layer_findings)
+
+    # None means intelligence/FP-filtering never actually ran (disabled,
+    # unreadable source, or an exception) - fall back to raw categories in
+    # that case. An empty set OTOH is a legitimate "ran and filtered
+    # everything out" result and must not be overridden by the fallback.
+    filtered_detected_categories: Optional[Set[str]] = None
 
     # Intelligence engine: zero-recall pattern detection, cross-tool scoring,
     # FP suppression. This is what pushes recall from ~50% to 95.8%.
@@ -444,7 +457,38 @@ def _evaluate_contract(
                     file_path=str(contract_path),
                 )
 
-                # Extract categories from enhanced findings (includes zero-recall patterns)
+                # FalsePositiveFilter: 270+ curated patterns (safe-library
+                # provenance - OpenZeppelin/Solmate/Solady -, safe code
+                # patterns, test/interface/mock context). Already wired into
+                # scan/audit full via MLOrchestrator, never into the
+                # evaluation path - so precision here was always measured
+                # pre-filter. Runs only on findings that survived
+                # intelligence's own 6-rule check; reuses the fp_suppressed
+                # flag so the category extraction below needs no new logic.
+                # Calls filter_finding() directly (not the batch
+                # filter_findings()) so code_context is always source_code:
+                # filter_findings() would instead look it up per-finding via
+                # finding["location"]["file"], which isn't guaranteed to
+                # match contract_path's exact string across ~20+ adapters -
+                # every finding here is for this one contract regardless.
+                try:
+                    from miesc.ml.fp_filter import FalsePositiveFilter
+
+                    fp_filter = FalsePositiveFilter(strictness="medium", use_rag=False)
+                    for f in enhanced:
+                        if f.get("fp_suppressed"):
+                            continue
+                        fp_result = fp_filter.filter_finding(
+                            f, code_context=source_code, file_path=str(contract_path)
+                        )
+                        if not fp_result.should_report:
+                            f["fp_suppressed"] = True
+                except ImportError:
+                    pass  # FP filter not available
+
+
+                # Extract categories from enhanced, FP-filtered findings
+                # (includes zero-recall patterns)
                 intel_detected = set()
                 for f in enhanced:
                     if f.get("fp_suppressed"):
@@ -461,7 +505,7 @@ def _evaluate_contract(
                 result["timing"]["intelligence"] = round(intel_elapsed, 3)
 
                 # Record intelligence layer results
-                new_categories = intel_detected - result["aggregate"]["detected_categories"]
+                new_categories = intel_detected - raw_detected_categories
                 result["layers"]["intelligence"] = {
                     "findings_count": len([f for f in enhanced if not f.get("fp_suppressed")]),
                     "detected_categories": list(intel_detected),
@@ -470,11 +514,23 @@ def _evaluate_contract(
                     "time_seconds": round(intel_elapsed, 3),
                 }
 
-                result["aggregate"]["detected_categories"].update(intel_detected)
+                # Replace (not union) the raw per-layer categories: a
+                # category only counts toward precision/recall if a finding
+                # for it survives both FP filters. enhance_findings()
+                # reprocesses the full raw finding set (plus zero-recall
+                # additions), so intel_detected is a strict superset of
+                # raw_detected_categories minus whatever got suppressed.
+                filtered_detected_categories = intel_detected
         except ImportError:
             pass  # Intelligence engine not available
         except Exception as e:
             warning(f"Intelligence engine failed for {contract_path}: {e}")
+
+    result["aggregate"]["detected_categories"] = (
+        filtered_detected_categories
+        if filtered_detected_categories is not None
+        else raw_detected_categories
+    )
 
     # Convert set to list for serialization
     result["aggregate"]["detected_categories"] = list(result["aggregate"]["detected_categories"])

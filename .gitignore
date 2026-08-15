@@ -116,6 +116,7 @@ benchmarks/results/*
 !benchmarks/results/vs_upstream_20260814/
 !benchmarks/results/solodit_real_pilot_20260814/
 !benchmarks/results/solodit_real_ablation_20260815/
+!benchmarks/results/solodit_real_fp_filter_20260815/
 !benchmarks/results/evmbench/
 benchmarks/results/evmbench/*
 !benchmarks/results/paper1_claims_matrix.json
