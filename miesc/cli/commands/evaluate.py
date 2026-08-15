@@ -152,7 +152,14 @@ CATEGORY_ALIASES = {
         "weak-randomness",
         "weak-prng",
         "blockhash",
-        "block.timestamp",
+        # MEJORAS2.md #4: NOT "block.timestamp" — that normalizes to
+        # "block_timestamp", and the substring check below (`alias in
+        # finding_lower`) matched Slither's own "timestamp" detector type
+        # (SWC-116, unambiguously time_manipulation) as bad_randomness
+        # before time_manipulation's own exact "timestamp" alias was ever
+        # checked. Found measuring the #4 corpus-completion fix: once
+        # Slither could actually compile a multi-file contract, this alias
+        # started misclassifying its "timestamp" findings for real.
     },
     "front_running": {"front_running", "front-running", "frontrunning", "transaction-ordering"},
     "short_addresses": {"short_addresses", "short-addresses", "short-address"},
