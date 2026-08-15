@@ -15,6 +15,7 @@ License: AGPL-3.0
 
 import json
 import os
+import re
 import statistics
 import sys
 import time
@@ -212,6 +213,35 @@ CATEGORY_ALIASES = {
 }
 
 
+# MEJORAS2.md #5b: found while building the ML-classifier training set —
+# tool descriptions commonly embed the analyzed file's own path as a markdown
+# location link, e.g. Slither's "Variable [Foo.bar](benchmarks/datasets/
+# smartbugs-curated/dataset/bad_randomness/blackjack.sol#L51) is not in
+# mixedCase". SmartBugs-curated's corpus_dir/category_name/*.sol layout means
+# that path contains the ground-truth category name itself — so the keyword
+# fallback below matched "bad_randomness" (via "randomness" as a substring of
+# the *folder name* in the path) on findings with nothing to do with
+# randomness (a naming-convention lint). Left unstripped, this leaks ground
+# truth into "detection" for any category whose keyword is a substring of a
+# SmartBugs-curated folder name (confirmed also affects "reentrancy" via
+# "reentran" and "unchecked_low_level_calls" via "unchecked").
+_MARKDOWN_LOCATION_LINK_RE = re.compile(r"\[([^\]]*)\]\([^)]*\)")
+_BARE_FILE_PATH_RE = re.compile(r"\S*/\S*\.\w+(?:#L?\d+(?:-L?\d+)?)?")
+
+
+def _strip_location_paths(text: str) -> str:
+    """Remove embedded file-path references from a finding's own text.
+
+    Keeps the human-readable part of markdown location links (e.g. the
+    flagged symbol name) but drops the path, so a corpus directory name
+    (like a SmartBugs-curated category folder) can't leak into keyword
+    matching.
+    """
+    text = _MARKDOWN_LOCATION_LINK_RE.sub(r"\1", text)
+    text = _BARE_FILE_PATH_RE.sub("", text)
+    return text
+
+
 def _normalize_category(finding_type: str, title: str = "", description: str = "") -> Optional[str]:
     """Normalize a finding type to a ground-truth category.
 
@@ -228,7 +258,7 @@ def _normalize_category(finding_type: str, title: str = "", description: str = "
                 return canonical
 
     # Fallback: keyword search in title and description
-    combined_text = f"{title} {description}".lower()
+    combined_text = _strip_location_paths(f"{title} {description}").lower()
     keyword_map = {
         "reentrancy": ["reentran", "re-entran", "re_entran"],
         "access_control": [
