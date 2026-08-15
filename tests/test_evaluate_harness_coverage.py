@@ -282,6 +282,36 @@ class TestEvaluateContract:
         assert "reentrancy" not in result["match"]["tp"]
         assert result["match"]["fn"] == ["reentrancy"]
 
+    def test_fp_strictness_off_keeps_informational_finding(self):
+        """fp_strictness is threaded through to FalsePositiveFilter, not just
+        accepted and ignored: "off" never filters (fp_threshold=1.1, always
+        > any real score), so the same informational finding that "medium"
+        suppresses above must survive here."""
+        contract = self._isolated_contract()
+
+        def _fake(layer_num, contract_path, timeout):
+            return [
+                {
+                    "tool": "tool_1",
+                    "status": "ok",
+                    "findings": [
+                        {"type": "reentrancy-eth", "description": "", "severity": "info"}
+                    ],
+                }
+            ]
+
+        with patch("miesc.cli.commands.evaluate.run_layer", side_effect=_fake):
+            result = _evaluate_contract(
+                contract,
+                {"reentrancy"},
+                [1],
+                timeout=1,
+                skip_unavailable=True,
+                use_intelligence=True,
+                fp_strictness="off",
+            )
+        assert "reentrancy" in result["match"]["tp"]
+
     def test_fp_filter_keeps_real_finding(self):
         """Recall-safety companion to the suppression test above: a
         medium-severity finding with no safe-library/safe-pattern signal must

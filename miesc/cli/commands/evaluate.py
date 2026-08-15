@@ -429,6 +429,7 @@ def _evaluate_contract(
     timeout: int,
     skip_unavailable: bool,
     use_intelligence: bool = True,
+    fp_strictness: str = "medium",
 ) -> Dict[str, Any]:
     """Evaluate a single contract against ground truth.
 
@@ -539,7 +540,7 @@ def _evaluate_contract(
                 try:
                     from miesc.ml.fp_filter import FalsePositiveFilter
 
-                    fp_filter = FalsePositiveFilter(strictness="medium", use_rag=False)
+                    fp_filter = FalsePositiveFilter(strictness=fp_strictness, use_rag=False)
                     for f in enhanced:
                         if f.get("fp_suppressed"):
                             continue
@@ -842,6 +843,12 @@ def evaluate() -> None:
     default=None,
     help="Run LLM on missed contracts (e.g., --with-llm ollama or --with-llm claude)",
 )
+@click.option(
+    "--fp-strictness",
+    type=click.Choice(["off", "low", "medium", "high"]),
+    default="medium",
+    help="FalsePositiveFilter strictness for this run (default: medium)",
+)
 def evaluate_corpus(
     directory: str,
     layers: str,
@@ -854,6 +861,7 @@ def evaluate_corpus(
     config: str | None,
     no_intelligence: bool,
     with_llm: str | None,
+    fp_strictness: str,
 ) -> None:
     """Evaluate MIESC against an annotated benchmark corpus.
 
@@ -969,6 +977,7 @@ def evaluate_corpus(
                     timeout,
                     skip_unavailable,
                     use_intelligence=not no_intelligence,
+                    fp_strictness=fp_strictness,
                 )
                 all_results.append(eval_result)
 
@@ -1020,6 +1029,7 @@ def evaluate_corpus(
                 timeout,
                 skip_unavailable,
                 use_intelligence=not no_intelligence,
+                fp_strictness=fp_strictness,
             )
             all_results.append(eval_result)
 
