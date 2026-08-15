@@ -242,12 +242,40 @@ def _strip_location_paths(text: str) -> str:
     return text
 
 
+# MEJORAS2.md #5b follow-up: found while sanity-checking the smartbugs-curated
+# closing benchmark — Slither's "solc-version" check emits a fixed reference
+# list of "known severe issues by name" as routine compiler-upgrade advice
+# (e.g. "MemoryArrayCreationOverflow", a *compiler bug name*, nothing to do
+# with the contract's own arithmetic). The keyword fallback below searched
+# that boilerplate text and matched "overflow" as a substring, miscategorizing
+# ~50% of all solc-version findings (measured on a 40-contract sample) as
+# "arithmetic". These check types are lints about the toolchain/style, never
+# a vulnerability category by construction, regardless of what their advice
+# text happens to mention — so skip keyword matching entirely for them,
+# rather than trying to strip specific boilerplate phrases (fragile, and
+# Slither's reference list changes with the compiler version range). Same
+# denylist fp_filter.py already uses to mark these as non-security noise.
+_NOISE_CHECK_TYPES = {
+    "solc-version",
+    "pragma",
+    "naming-convention",
+    "visibility",
+    "dead-code",
+    "constable-states",
+    "immutable-states",
+    "push-zero",
+    "experimental",
+}
+
+
 def _normalize_category(finding_type: str, title: str = "", description: str = "") -> Optional[str]:
     """Normalize a finding type to a ground-truth category.
 
     Checks type field first, then falls back to keyword matching on title/description.
     """
     finding_lower = finding_type.lower().replace(" ", "_").replace("-", "_")
+    if finding_lower.replace("_", "-") in _NOISE_CHECK_TYPES:
+        return None
     for canonical, aliases in CATEGORY_ALIASES.items():
         normalized_aliases = {a.lower().replace(" ", "_").replace("-", "_") for a in aliases}
         if finding_lower in normalized_aliases:

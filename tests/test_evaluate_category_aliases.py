@@ -81,6 +81,36 @@ class TestLocationPathLeakage:
         assert _normalize_category("finding", description=desc) == "reentrancy"
 
 
+class TestNoiseCheckTypesNeverMatchByKeyword:
+    """Found while sanity-checking the smartbugs-curated closing benchmark:
+    Slither's solc-version check cites a fixed list of "known severe issues"
+    by compiler-bug *name* as routine upgrade advice — one of those names is
+    literally "MemoryArrayCreationOverflow", so the keyword fallback matched
+    "overflow" and miscategorized ~50% of all solc-version findings (measured
+    on a real 40-contract sample) as "arithmetic". A version/style lint can
+    never legitimately be a vulnerability category, so these types should
+    never reach keyword matching regardless of their advice text."""
+
+    def test_solc_version_overflow_boilerplate_not_misclassified(self):
+        desc = (
+            "Version constraint ^0.4.15 contains known severe issues "
+            "(https://solidity.readthedocs.io/en/latest/bugs.html)\n"
+            "\t- MemoryArrayCreationOverflow\n\t- DirtyBytesArrayToStorage\n"
+        )
+        assert _normalize_category("solc-version", description=desc) is None
+
+    def test_naming_convention_never_matches_by_keyword(self):
+        assert (
+            _normalize_category("naming-convention", description="reentrancy-like name") is None
+        )
+
+    def test_genuine_arithmetic_type_still_matches(self):
+        assert _normalize_category("integer-overflow") == "arithmetic"
+
+    def test_genuine_arithmetic_keyword_fallback_still_works(self):
+        assert _normalize_category("finding", description="classic integer overflow bug") == "arithmetic"
+
+
 class TestGroundTruthJsonManifest:
     """MEJORAS2.md #1 — Solodit-sourced per-finding ground truth, an
     alternative to SmartBugs-curated's one-category-per-folder inference."""
