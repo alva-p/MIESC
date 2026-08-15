@@ -1,0 +1,62 @@
+{
+  "_meta": {
+    "source": "Solodit MCP (Sherlock real audit report) — MEJORAS2.md backlog #1 (Vyper adapter depth)",
+    "built": "2026-08-15",
+    "protocols": [
+      {
+        "source": "Sherlock contest, protocol=Fair Funding by Alchemix & Unstoppable",
+        "solodit_query": "search_findings(protocol=\"Fair Funding\")",
+        "repo": "https://github.com/sherlock-audit/2023-02-fair-funding",
+        "judging_repo": "https://github.com/sherlock-audit/2023-02-fair-funding-judging",
+        "findings_total": 5,
+        "findings_used": 5,
+        "excluded": "none — all 5 HIGH/MEDIUM findings used",
+        "completeness_check": "sequential numbering H-1..H-2, M-1..M-3 with zero gaps"
+      }
+    ],
+    "note": "First real-audit ground truth for miesc/adapters/vyper_adapter.py (MEJORAS2.md #6, PR #19) — the adapter was validated only against synthetic fixtures until now (confirmed not to crash, never confirmed to find anything real). Scope per the contest's own README: AuctionHouse.vy, Vault.vy (Vyper 0.3.7), MintableERC721.sol (Solidity, out of scope for the Vyper adapter itself but kept for corpus completeness).",
+    "known_issues": "none yet — pilot corpus, single protocol."
+  },
+  "findings": [
+    {
+      "id": "H-1",
+      "file": "fair-funding/Vault.vy",
+      "category": "business_logic",
+      "severity": "HIGH",
+      "title": "amount_claimable_per_share accounting is broken and will result in vault insolvency",
+      "protocol": "Fair Funding"
+    },
+    {
+      "id": "H-2",
+      "file": "fair-funding/Vault.vy",
+      "category": "denial_of_service",
+      "severity": "HIGH",
+      "title": "Incorrect shares accounting cause liquidations to fail in some cases",
+      "protocol": "Fair Funding"
+    },
+    {
+      "id": "M-1",
+      "file": "fair-funding/Vault.vy",
+      "category": "access_control",
+      "severity": "MEDIUM",
+      "title": "Migrator contract lacks sufficient permissions over vault positions",
+      "protocol": "Fair Funding"
+    },
+    {
+      "id": "M-2",
+      "file": "fair-funding/Vault.vy",
+      "category": "access_control",
+      "severity": "MEDIUM",
+      "title": "Broken Operator Mechanism: Just 1 malicious / compromised operator can permanently break functionality",
+      "protocol": "Fair Funding"
+    },
+    {
+      "id": "M-3",
+      "file": "fair-funding/AuctionHouse.vy",
+      "category": "time_manipulation",
+      "severity": "MEDIUM",
+      "title": "Starting timestamp can be bypassed by calling settle",
+      "protocol": "Fair Funding"
+    }
+  ]
+}
