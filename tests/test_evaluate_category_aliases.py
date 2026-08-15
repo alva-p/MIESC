@@ -40,6 +40,47 @@ class TestModernCategories:
         assert _normalize_category("finding", description="block.timestamp dependence") == "time_manipulation"
 
 
+class TestLocationPathLeakage:
+    """MEJORAS2.md #5b — Slither (and others) embed the analyzed file's own
+    path in finding descriptions as a markdown location link. SmartBugs-
+    curated's corpus_dir/category_name/*.sol layout means that path contains
+    the ground-truth category name, so an unrelated finding (e.g. a naming
+    lint) on a file under bad_randomness/ used to get miscategorized as
+    bad_randomness purely because "randomness" is a substring of the folder
+    name in the path — found while building the ML classifier's training
+    set (every folder-based label was silently leaking into "detection")."""
+
+    def test_naming_convention_on_bad_randomness_folder_not_misclassified(self):
+        desc = (
+            "Variable [BlackJack.BLACKJACK]"
+            "(benchmarks/datasets/smartbugs-curated/dataset/bad_randomness/"
+            "blackjack.sol#L51) is not in mixedCase\n"
+        )
+        assert _normalize_category("naming-convention", description=desc) is None
+
+    def test_unrelated_finding_on_reentrancy_folder_not_misclassified(self):
+        desc = (
+            "Pragma version [^0.8.20]"
+            "(benchmarks/datasets/smartbugs-curated/dataset/reentrancy/"
+            "foo.sol#L1) is not specific\n"
+        )
+        assert _normalize_category("solc-version", description=desc) is None
+
+    def test_unrelated_finding_on_unchecked_calls_folder_not_misclassified(self):
+        desc = (
+            "Constant [Foo.BAR]"
+            "(benchmarks/datasets/smartbugs-curated/dataset/"
+            "unchecked_low_level_calls/foo.sol#L3) is not in UPPER_CASE\n"
+        )
+        assert _normalize_category("naming-convention", description=desc) is None
+
+    def test_genuine_keyword_in_bracketed_text_still_matches(self):
+        # The symbol name (bracket text) is kept, only the path is dropped —
+        # a real reentrancy-flavored description should still classify.
+        desc = "Possible reentrancy in [Foo.withdraw](some/path/Foo.sol#L10)"
+        assert _normalize_category("finding", description=desc) == "reentrancy"
+
+
 class TestGroundTruthJsonManifest:
     """MEJORAS2.md #1 — Solodit-sourced per-finding ground truth, an
     alternative to SmartBugs-curated's one-category-per-folder inference."""
