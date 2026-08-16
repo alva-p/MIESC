@@ -438,13 +438,9 @@ class FrontierLLMAdapter(ToolAdapter):
             elif provider == "ollama":
                 findings = self._analyze_ollama(source_code, rag_context=rag_context, **kwargs)
             elif provider == "claude_code":
-                findings = self._analyze_claude_code(
-                    source_code, rag_context=rag_context, **kwargs
-                )
+                findings = self._analyze_claude_code(source_code, rag_context=rag_context, **kwargs)
             elif provider == "codex_cli":
-                findings = self._analyze_codex_cli(
-                    source_code, rag_context=rag_context, **kwargs
-                )
+                findings = self._analyze_codex_cli(source_code, rag_context=rag_context, **kwargs)
             else:
                 return self._error_result(start_time, f"Unknown provider: {provider}")
         except Exception as e:
@@ -1536,7 +1532,9 @@ Respond with a JSON array."""
 
         user_prompt = self._build_user_prompt(source_code, rag_context)
         rag_note = f" +RAG({len(rag_context)})" if rag_context else ""
-        logger.info(f"FrontierLLM: Calling Claude Code CLI ({model}, {len(source_code)} chars{rag_note})")
+        logger.info(
+            f"FrontierLLM: Calling Claude Code CLI ({model}, {len(source_code)} chars{rag_note})"
+        )
 
         result_text = call_claude_cli(user_prompt, system_prompt=AUDIT_SYSTEM_PROMPT, model=model)
         return self._parse_response(result_text)

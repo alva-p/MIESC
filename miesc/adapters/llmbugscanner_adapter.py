@@ -269,7 +269,12 @@ class LLMBugScannerAdapter(ToolAdapter):
                         # the "llama2 doesn't make this a code-auditing tool"
                         # case this fallback must still reject.
                         fallback = ""
-                        for candidate in ("qwen2.5-coder", "codellama", "deepseek-coder", "codegemma"):
+                        for candidate in (
+                            "qwen2.5-coder",
+                            "codellama",
+                            "deepseek-coder",
+                            "codegemma",
+                        ):
                             for available_model in models:
                                 if candidate in available_model.lower():
                                     fallback = available_model

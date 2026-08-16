@@ -62,9 +62,7 @@ class TestAuditBatchCrossContractChains:
         runner = CliRunner()
 
         with patch("miesc.cli.commands.audit.run_tool", side_effect=_fake_run_tool):
-            result = runner.invoke(
-                audit, ["batch", str(tmp_path), "-o", str(out_file)]
-            )
+            result = runner.invoke(audit, ["batch", str(tmp_path), "-o", str(out_file)])
 
         assert result.exit_code == 0, result.output
         report = json.loads(out_file.read_text())
@@ -79,9 +77,7 @@ class TestAuditBatchCrossContractChains:
         runner = CliRunner()
 
         with patch("miesc.cli.commands.audit.run_tool", side_effect=_fake_run_tool):
-            result = runner.invoke(
-                audit, ["batch", str(tmp_path), "-o", str(out_file)]
-            )
+            result = runner.invoke(audit, ["batch", str(tmp_path), "-o", str(out_file)])
 
         assert result.exit_code == 0, result.output
         report = json.loads(out_file.read_text())

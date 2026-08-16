@@ -23,9 +23,7 @@ class TestXrayCommand:
     def test_json_output_has_expected_keys(self, tmp_path):
         runner = CliRunner()
         out_file = tmp_path / "xray_report.json"
-        result = runner.invoke(
-            xray, ["examples/contracts/DeFiVault.sol", "-o", str(out_file)]
-        )
+        result = runner.invoke(xray, ["examples/contracts/DeFiVault.sol", "-o", str(out_file)])
         assert result.exit_code == 0
         report = json.loads(out_file.read_text())
         assert "files" in report and "hotspots" in report

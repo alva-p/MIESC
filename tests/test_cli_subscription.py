@@ -63,9 +63,7 @@ def test_call_codex_cli_reads_output_file():
 
 
 def test_call_codex_cli_classifies_failure():
-    completed = subprocess.CompletedProcess(
-        ["codex"], 1, "", "rate limit exceeded"
-    )
+    completed = subprocess.CompletedProcess(["codex"], 1, "", "rate limit exceeded")
     with (
         patch("subprocess.run", return_value=completed),
         pytest.raises(RuntimeError, match="rate limited"),

@@ -1185,7 +1185,7 @@ class TestFindAttackPaths:
             "pragma solidity ^0.8.0;\n"
             "contract C {\n"
             "    function withdraw() external { _unsafe(); }\n"
-            "    function _unsafe() internal { msg.sender.call{value: 1}(\"\"); }\n"
+            '    function _unsafe() internal { msg.sender.call{value: 1}(""); }\n'
             "}\n"
         )
         cg, _, _ = agent._build_call_graph(src)

@@ -915,7 +915,9 @@ def context_aware_fp_check(
         f"{finding.get('description', '')}"
     ).lower()
     is_timestamp_finding = canonical == CanonicalCategory.TIME_MANIPULATION or (
-        "timestamp" in ftype_blob or "time_dependency" in ftype_blob or "time dependency" in ftype_blob
+        "timestamp" in ftype_blob
+        or "time_dependency" in ftype_blob
+        or "time dependency" in ftype_blob
     )
     if is_timestamp_finding and source_code:
         if not _passes_zero_recall_context_filter(

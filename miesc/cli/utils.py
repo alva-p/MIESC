@@ -510,9 +510,7 @@ def run_layer(layer: int, contract: str, timeout: int = 300) -> List[Dict[str, A
             for index, tool in enumerate(tools)
         }
         try:
-            for future in as_completed(
-                futures, timeout=timeout + _LAYER_TIMEOUT_SAFETY_MARGIN
-            ):
+            for future in as_completed(futures, timeout=timeout + _LAYER_TIMEOUT_SAFETY_MARGIN):
                 index, tool = futures[future]
                 try:
                     results_by_index[index] = future.result()

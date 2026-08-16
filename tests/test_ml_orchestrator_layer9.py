@@ -60,9 +60,11 @@ def _make_orchestrator(tmp_path: Path, calls: dict) -> MLOrchestrator:
                 return {
                     "tool": "audit_consensus",
                     "status": "success",
-                    "findings": [{"id": "consensus-1", "type": "reentrancy", "severity": "High"}]
-                    if kw.get("findings_map")
-                    else [],
+                    "findings": (
+                        [{"id": "consensus-1", "type": "reentrancy", "severity": "High"}]
+                        if kw.get("findings_map")
+                        else []
+                    ),
                 }
 
             return _FakeAdapter(handler)
@@ -73,9 +75,11 @@ def _make_orchestrator(tmp_path: Path, calls: dict) -> MLOrchestrator:
                 return {
                     "tool": "exploit_synthesizer",
                     "status": "success",
-                    "findings": [{"id": "exploit-1", "type": "exploit_chain", "severity": "Critical"}]
-                    if kw.get("findings")
-                    else [],
+                    "findings": (
+                        [{"id": "exploit-1", "type": "exploit_chain", "severity": "Critical"}]
+                        if kw.get("findings")
+                        else []
+                    ),
                 }
 
             return _FakeAdapter(handler)
@@ -86,9 +90,11 @@ def _make_orchestrator(tmp_path: Path, calls: dict) -> MLOrchestrator:
                 return {
                     "tool": "vuln_verifier",
                     "status": "success",
-                    "findings": [{"id": "verified-1", "type": "verification", "severity": "Info"}]
-                    if kw.get("findings")
-                    else [],
+                    "findings": (
+                        [{"id": "verified-1", "type": "verification", "severity": "Info"}]
+                        if kw.get("findings")
+                        else []
+                    ),
                 }
 
             return _FakeAdapter(handler)
@@ -96,9 +102,12 @@ def _make_orchestrator(tmp_path: Path, calls: dict) -> MLOrchestrator:
 
     orchestrator.discovery = MagicMock()
     orchestrator.discovery.get_available_tools.return_value = [
-        MagicMock(name=n) for n in ("slither", "aderyn", "audit_consensus", "exploit_synthesizer", "vuln_verifier")
+        MagicMock(name=n)
+        for n in ("slither", "aderyn", "audit_consensus", "exploit_synthesizer", "vuln_verifier")
     ]
-    for i, n in enumerate(("slither", "aderyn", "audit_consensus", "exploit_synthesizer", "vuln_verifier")):
+    for i, n in enumerate(
+        ("slither", "aderyn", "audit_consensus", "exploit_synthesizer", "vuln_verifier")
+    ):
         orchestrator.discovery.get_available_tools.return_value[i].name = n
     orchestrator.discovery.load_adapter.side_effect = load_adapter
 

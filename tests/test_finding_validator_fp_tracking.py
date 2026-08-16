@@ -26,9 +26,7 @@ def test_confirmed_fp_is_tagged_and_retained_for_audit_trail():
     validator = LLMFindingValidator(ValidatorConfig(confirm_false_positives=False))
 
     async def response(_prompt):
-        return json.dumps(
-            {"result": "false_positive", "confidence": 0.9, "reasoning": "guarded"}
-        )
+        return json.dumps({"result": "false_positive", "confidence": 0.9, "reasoning": "guarded"})
 
     with (
         patch.object(validator, "is_available", new=AsyncMock(return_value=True)),
@@ -54,9 +52,7 @@ def test_second_pass_disagreement_keeps_finding():
     validator = LLMFindingValidator()
     responses = iter(
         [
-            json.dumps(
-                {"result": "false_positive", "confidence": 0.8, "reasoning": "guarded"}
-            ),
+            json.dumps({"result": "false_positive", "confidence": 0.8, "reasoning": "guarded"}),
             json.dumps(
                 {
                     "confirms_false_positive": False,
@@ -84,9 +80,7 @@ def test_second_pass_agreement_filters_but_preserves_finding():
     validator = LLMFindingValidator()
     responses = iter(
         [
-            json.dumps(
-                {"result": "false_positive", "confidence": 0.8, "reasoning": "guarded"}
-            ),
+            json.dumps({"result": "false_positive", "confidence": 0.8, "reasoning": "guarded"}),
             json.dumps(
                 {
                     "confirms_false_positive": True,

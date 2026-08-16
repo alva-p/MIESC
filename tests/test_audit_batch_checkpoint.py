@@ -34,9 +34,7 @@ class TestAuditBatchCheckpoint:
         runner = CliRunner()
 
         with patch("miesc.cli.commands.audit.run_tool", side_effect=_fake_run_tool):
-            result = runner.invoke(
-                audit, ["batch", str(tmp_path), "--checkpoint", str(ckpt)]
-            )
+            result = runner.invoke(audit, ["batch", str(tmp_path), "--checkpoint", str(ckpt)])
 
         assert result.exit_code == 0, result.output
         data = json.loads(ckpt.read_text())

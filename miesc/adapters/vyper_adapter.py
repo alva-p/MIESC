@@ -152,7 +152,9 @@ class VyperPatternDetector:
             "High",
         ),
         (
-            re.compile(r"\b(create_forwarder_to|create_minimal_proxy_to|create_from_blueprint)\s*\("),
+            re.compile(
+                r"\b(create_forwarder_to|create_minimal_proxy_to|create_from_blueprint)\s*\("
+            ),
             VyperVulnerability.UNSAFE_PROXY_CREATION,
             "Medium",
         ),
@@ -177,9 +179,11 @@ class VyperPatternDetector:
                         "severity": severity,
                         "line": line,
                         "file": file_path,
-                        "code": source_code.splitlines()[line - 1].strip()
-                        if line <= len(source_code.splitlines())
-                        else "",
+                        "code": (
+                            source_code.splitlines()[line - 1].strip()
+                            if line <= len(source_code.splitlines())
+                            else ""
+                        ),
                     }
                 )
         return findings
@@ -315,7 +319,9 @@ class VyperAnalyzer(AbstractChainAnalyzer):
     def _extract_state_variables(self, source_code: str, file_path: str) -> List[AbstractVariable]:
         """Extract module-level state variable declarations (`name: type`)."""
         variables: List[AbstractVariable] = []
-        var_re = re.compile(r"^(\w+)\s*:\s*(public\s*\(\s*)?([^=\n]+?)\)?\s*(?:=.*)?$", re.MULTILINE)
+        var_re = re.compile(
+            r"^(\w+)\s*:\s*(public\s*\(\s*)?([^=\n]+?)\)?\s*(?:=.*)?$", re.MULTILINE
+        )
         for match in var_re.finditer(source_code):
             name = match.group(1)
             if name in ("def", "event", "struct", "interface", "implements"):
@@ -360,11 +366,15 @@ class VyperAnalyzer(AbstractChainAnalyzer):
                 SecurityProperty.EXTERNAL_CALLS not in properties
             ):
                 continue
-            if vuln_type in (
-                VyperVulnerability.SELFDESTRUCT_USAGE,
-                VyperVulnerability.TX_ORIGIN_AUTH,
-                VyperVulnerability.MISSING_ACCESS_CONTROL,
-            ) and SecurityProperty.ACCESS_CONTROL not in properties:
+            if (
+                vuln_type
+                in (
+                    VyperVulnerability.SELFDESTRUCT_USAGE,
+                    VyperVulnerability.TX_ORIGIN_AUTH,
+                    VyperVulnerability.MISSING_ACCESS_CONTROL,
+                )
+                and SecurityProperty.ACCESS_CONTROL not in properties
+            ):
                 continue
             if vuln_type == VyperVulnerability.UNSAFE_ARITHMETIC and (
                 SecurityProperty.ARITHMETIC not in properties
@@ -525,9 +535,7 @@ class VyperAnalyzer(AbstractChainAnalyzer):
 def probe_vyper_compiler() -> Optional[str]:
     """Return the installed `vyper` compiler version string, or None if unavailable."""
     try:
-        result = subprocess.run(
-            ["vyper", "--version"], capture_output=True, text=True, timeout=10
-        )
+        result = subprocess.run(["vyper", "--version"], capture_output=True, text=True, timeout=10)
         if result.returncode == 0:
             return result.stdout.strip()
     except (OSError, subprocess.TimeoutExpired) as e:

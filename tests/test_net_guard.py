@@ -84,7 +84,9 @@ class TestResolveDnsFlag:
 class TestDnsFailureFallsOpen:
     def test_gaierror_lets_the_url_through(self):
         """A DNS failure isn't an SSRF signal -- let the real request surface it."""
-        with mock.patch("socket.getaddrinfo", side_effect=socket.gaierror("name resolution failed")):
+        with mock.patch(
+            "socket.getaddrinfo", side_effect=socket.gaierror("name resolution failed")
+        ):
             assert guard_outbound_url(URL) == URL
 
 
