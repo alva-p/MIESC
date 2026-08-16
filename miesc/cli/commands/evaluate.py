@@ -262,6 +262,33 @@ def _strip_location_paths(text: str) -> str:
 # rather than trying to strip specific boilerplate phrases (fragile, and
 # Slither's reference list changes with the compiler version range). Same
 # denylist fp_filter.py already uses to mark these as non-security noise.
+# MEJORAS2.md #5j: categories exploit_synthesizer's POC_TEMPLATES can build a
+# real (non-generic) PoC for. Restricting hypothesis verification to these
+# three is the "narrow but reliable" scope - a candidate outside them would
+# only ever get the weak generic template, which is not a meaningful PoC
+# either way.
+_POC_VERIFIED_CATEGORIES = {"reentrancy", "access_control", "integer_overflow"}
+
+_FUNCTION_DEF_RE = re.compile(r"\bfunction\s+(\w+)\s*\(")
+_WORD_RE = re.compile(r"\b[a-zA-Z_]\w*\b")
+
+
+def _extract_function_hint(text: str, source_code: str) -> str:
+    """Best-effort: find a real function name (defined in source_code) mentioned
+    in an LLM finding's free text.
+
+    llmbugscanner's findings carry no structured location.function field (only
+    a free-text title/description) - exploit_synthesizer's PoC templates need
+    a real function name to target. Cross-referencing free text against the
+    contract's own function defs is the cheapest bridge between the two shapes.
+    """
+    defined = set(_FUNCTION_DEF_RE.findall(source_code))
+    for word in _WORD_RE.findall(text):
+        if word in defined:
+            return word
+    return ""
+
+
 _NOISE_CHECK_TYPES = {
     "solc-version",
     "pragma",
@@ -592,11 +619,116 @@ def _evaluate_contract(
         except Exception as e:
             warning(f"Intelligence engine failed for {contract_path}: {e}")
 
-    result["aggregate"]["detected_categories"] = (
+    # MEJORAS2.md #5j: PoC-verified hypotheses. llmbugscanner (Layer 9, the
+    # only tool there that reads the contract from scratch rather than
+    # reviewing prior findings) is real but non-deterministic - 5i showed
+    # aggregate recall unmoved across a full corpus run because what it finds
+    # shuffles between runs, not because it finds nothing. Narrow-but-reliable
+    # scope: for its findings in the 3 categories exploit_synthesizer has a
+    # real (non-generic) PoC template for, actually run the PoC (run_poc=True,
+    # off by default in production - see ml_orchestrator.py) and only count a
+    # category if a real forge test confirms it. This is independent of the
+    # intelligence/FP-filter path above (a different verification mechanism -
+    # real code execution, not heuristics tuned for pattern-based tool
+    # output), so it unions in regardless of whether that path ran.
+    poc_verified_categories: Set[str] = set()
+    if 9 in layers:
+        llmbugscanner_candidates = [
+            f
+            for f in result["aggregate"]["all_findings"]
+            if f.get("_source_tool") == "llmbugscanner"
+            and f.get("category") in _POC_VERIFIED_CATEGORIES
+        ]
+        if llmbugscanner_candidates:
+            try:
+                source_code = contract_path.read_text(encoding="utf-8", errors="ignore")
+            except Exception:
+                source_code = ""
+            if source_code:
+                try:
+                    from miesc.adapters.exploit_synthesizer_adapter import (
+                        ExploitSynthesizerAdapter,
+                    )
+
+                    poc_input = [
+                        {
+                            "type": f.get("category"),
+                            "severity": f.get("severity", "Medium"),
+                            "confidence": f.get("confidence", 0.7),
+                            "description": f.get("description", f.get("title", "")),
+                            "location": {
+                                "file": str(contract_path),
+                                "function": _extract_function_hint(
+                                    f"{f.get('title', '')} {f.get('description', '')}",
+                                    source_code,
+                                ),
+                                "line": 0,
+                            },
+                        }
+                        for f in llmbugscanner_candidates
+                    ]
+                    # normalize_findings() doesn't carry the category through
+                    # to its output (only id/message/description survive) -
+                    # match a confirmed PoC back to the category it was
+                    # generated for via the function name, the one field that
+                    # does round-trip (through original_finding.location).
+                    function_to_category = {
+                        item["location"]["function"]: item["type"]
+                        for item in poc_input
+                        if item["location"]["function"]
+                    }
+                    synth_result = ExploitSynthesizerAdapter().analyze(
+                        str(contract_path), findings=poc_input, run_poc=True
+                    )
+                    for verified in synth_result.get("findings", []):
+                        if verified.get("type") != "exploit_confirmed":
+                            continue
+                        func = verified.get("location", {}).get("function", "")
+                        cat = function_to_category.get(func)
+                        if cat:
+                            poc_verified_categories.add(cat)
+                except ImportError:
+                    pass  # exploit_synthesizer not available
+                except Exception as e:
+                    warning(f"PoC verification failed for {contract_path}: {e}")
+
+    base_detected = (
         filtered_detected_categories
         if filtered_detected_categories is not None
         else raw_detected_categories
     )
+
+    # Gate, don't just add: a target category is only as trustworthy as its
+    # weakest source. If the ONLY tool that flagged one of the 3
+    # PoC-verifiable categories was llmbugscanner (no other tool
+    # independently agreed), an unconfirmed PoC means don't count it - an
+    # unverified LLM guess must not silently ride along inside the raw/
+    # intelligence-filtered set. A category any other tool also flagged is
+    # left untouched regardless of PoC status (independent corroboration
+    # already exists).
+    categories_from_other_tools: Set[str] = set()
+    for f in result["aggregate"]["all_findings"]:
+        if f.get("_source_tool") == "llmbugscanner":
+            continue
+        cat = _normalize_category(
+            f.get("type", "") or f.get("title", ""),
+            title=f.get("title", ""),
+            description=f.get("description", f.get("message", "")),
+        )
+        if cat:
+            categories_from_other_tools.add(cat)
+
+    final_detected: Set[str] = set()
+    for cat in base_detected:
+        if cat in _POC_VERIFIED_CATEGORIES and cat not in categories_from_other_tools:
+            if cat in poc_verified_categories:
+                final_detected.add(cat)
+            # else: llmbugscanner-only claim, not PoC-confirmed - drop it.
+        else:
+            final_detected.add(cat)
+    final_detected |= poc_verified_categories
+
+    result["aggregate"]["detected_categories"] = final_detected
 
     # Convert set to list for serialization
     result["aggregate"]["detected_categories"] = list(result["aggregate"]["detected_categories"])
