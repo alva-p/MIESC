@@ -1022,3 +1022,113 @@ class TestContextAwareFpCheckExtra:
         is_fp, reason = context_aware_fp_check(finding, src)
         assert is_fp is True
         assert "SafeERC20" in reason
+
+
+class TestReentrancyToolNoiseRules:
+    """Rules 8-10 (MEJORAS3.md item 1 precision comparison, 2026-08-16):
+    unblinding Slither/Aderyn on previously-uncompilable files surfaced their
+    own reentrancy-detector noise, not real findings. Confirmed empirically
+    against benchmarks/datasets/solodit-real/y2k-finance/ before writing
+    these: 6 new reentrancy FPs, none in ground truth, none exploitable."""
+
+    def test_slither_reentrancy_events_suppressed(self):
+        # Slither's OWN classification (its docs): only event-emission
+        # variables affected after the call, no business-logic state.
+        finding = {"type": "reentrancy-events", "severity": "Low", "location": {}}
+        is_fp, reason = context_aware_fp_check(finding, "contract C {}")
+        assert is_fp is True
+        assert "self-labeled" in reason
+
+    def test_slither_reentrancy_benign_suppressed(self):
+        finding = {"type": "reentrancy-benign", "severity": "Low", "location": {}}
+        is_fp, reason = context_aware_fp_check(finding, "contract C {}")
+        assert is_fp is True
+
+    def test_slither_reentrancy_eth_not_suppressed(self):
+        # High-confidence label — Slither's own classification for
+        # potentially-real exploitable reentrancy. Must NOT be suppressed by
+        # rule 8 (only -events/-benign are self-labeled non-exploitable).
+        finding = {"type": "reentrancy-eth", "severity": "High", "location": {}}
+        is_fp, _ = context_aware_fp_check(finding, "contract C {}")
+        assert is_fp is False
+
+    def test_aderyn_state_change_on_view_function_suppressed(self):
+        # A view/pure function cannot write storage at all - the compiler
+        # guarantees it, so any "state change after external call" here is
+        # necessarily a local/named-return variable, not real state.
+        src = """
+        function getPrice() public view returns (int256 price) {
+            price = oracle.latestAnswer();
+        }
+        """
+        finding = {
+            "type": "reentrancy-state-change",
+            "severity": "High",
+            "location": {"function": "getPrice"},
+        }
+        is_fp, reason = context_aware_fp_check(finding, src)
+        assert is_fp is True
+        assert "view/pure" in reason
+
+    def test_aderyn_state_change_on_mutating_function_not_suppressed(self):
+        # A genuinely state-mutating function - rule 9 must not apply here,
+        # and rule 10 shouldn't either (the call isn't a known view-only one).
+        src = """
+        function withdraw(uint256 amount) external {
+            balances[msg.sender] -= amount;
+            (bool ok, ) = msg.sender.call{value: amount}("");
+        }
+        """
+        finding = {
+            "type": "reentrancy-state-change",
+            "severity": "High",
+            "location": {"function": "withdraw", "line": 3},
+        }
+        is_fp, _ = context_aware_fp_check(finding, src)
+        assert is_fp is False
+
+    def test_view_only_interface_call_near_finding_suppressed(self):
+        # Aderyn never populates location.function (always "unknown"), so
+        # rule 9 alone can't reach a case like this (a constructor calling a
+        # Chainlink view function before writing its own storage) - rule 10
+        # covers it via the finding's line number instead. A call to a
+        # view-typed interface member compiles to a STATICCALL, which by EVM
+        # design cannot write state anywhere in its own call subtree.
+        src = "\n".join(
+            [
+                "constructor(address _oracle) {",  # line 1
+                "    priceFeed = AggregatorV3Interface(_oracle);",  # line 2
+                "    decimals = priceFeed.decimals();",  # line 3
+                "    owner = msg.sender;",  # line 4
+                "}",  # line 5
+            ]
+        )
+        finding = {
+            "type": "reentrancy-state-change",
+            "severity": "High",
+            "location": {"function": "unknown", "line": 3},
+        }
+        is_fp, reason = context_aware_fp_check(finding, src)
+        assert is_fp is True
+        assert "STATICCALL" in reason
+
+    def test_dangerous_call_near_finding_not_suppressed_by_rule_10(self):
+        # A genuinely dangerous external call (.call{value:...}) anywhere in
+        # the window must keep rule 10 from firing, even if a view-only call
+        # also appears nearby.
+        src = "\n".join(
+            [
+                "function sweep() external {",  # line 1
+                "    uint256 d = token.decimals();",  # line 2
+                "    (bool ok, ) = msg.sender.call{value: address(this).balance}('');",  # line 3
+                "    paid = true;",  # line 4
+                "}",  # line 5
+            ]
+        )
+        finding = {
+            "type": "reentrancy-state-change",
+            "severity": "High",
+            "location": {"function": "unknown", "line": 4},
+        }
+        is_fp, _ = context_aware_fp_check(finding, src)
+        assert is_fp is False
