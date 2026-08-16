@@ -533,6 +533,7 @@ def _run_full_audit_with_ml(
     fail_on_confidence: float = 0.0,
     baseline_path: str | None = None,
     fail_on_new: bool = False,
+    confirm_exploits: bool = False,
 ) -> None:
     """Run full audit using ML Orchestrator."""
     # Determine tools from layers
@@ -556,6 +557,7 @@ def _run_full_audit_with_ml(
             timeout=timeout,
             progress_callback=progress_callback if RICH_AVAILABLE else None,
             fp_strictness=fp_strictness,
+            confirm_exploits=confirm_exploits,
         )
 
         # Recall-safe benign-context verifier (opt-in) over the ML-filtered findings
@@ -1390,6 +1392,16 @@ def audit_quick(
     is_flag=True,
     help="With --baseline: exit non-zero ONLY if there are findings not in the baseline.",
 )
+@click.option(
+    "--confirm-exploits",
+    "confirm_exploits",
+    is_flag=True,
+    help="MEJORAS3.md item 3. Opt-in: actually compile+run exploit_synthesizer's "
+    "generated PoCs with Foundry (Layer 9), so findings can be marked genuinely "
+    "CONFIRMED/NOT_CONFIRMED instead of always POC_GENERATED. Adds real latency "
+    "(network on first use per contract, then a real forge test per finding) - "
+    "off by default, same opt-in-for-real-cost pattern as cloud LLM adapters.",
+)
 def audit_full(
     contract: str,
     output: str | None,
@@ -1408,6 +1420,7 @@ def audit_full(
     fail_on_confidence: float,
     baseline_path: str | None,
     fail_on_new: bool,
+    confirm_exploits: bool,
 ) -> None:
     """Complete 9-layer security audit with the configured layer tools.
 
@@ -1452,6 +1465,7 @@ def audit_full(
             fail_on_confidence=fail_on_confidence,
             baseline_path=baseline_path,
             fail_on_new=fail_on_new,
+            confirm_exploits=confirm_exploits,
         )
         return
 
