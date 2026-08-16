@@ -7,7 +7,6 @@ Author: Fernando Boiero <fboiero@frvm.utn.edu.ar>
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 from click.testing import CliRunner
 

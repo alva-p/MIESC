@@ -17,8 +17,8 @@ from pathlib import Path
 
 import click
 
-from miesc.cli.utils import RICH_AVAILABLE, console, error, info, print_banner
 from miesc.agents.xray_agent import run_xray
+from miesc.cli.utils import RICH_AVAILABLE, console, error, info, print_banner
 
 if RICH_AVAILABLE:
     from rich import box
