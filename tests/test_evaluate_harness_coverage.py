@@ -333,6 +333,146 @@ class TestEvaluateContract:
         assert "reentrancy" in result["match"]["tp"]
 
 
+def _layer9_llmbugscanner(category: str, title: str):
+    """Fake run_layer emitting one llmbugscanner-shaped Layer 9 finding.
+
+    Matches llmbugscanner's real output shape (category, not type; no
+    structured location.function - only free text), not the generic
+    ``_layer_returning`` shape other tests use.
+    """
+
+    def _fake(layer_num, contract, timeout):
+        if layer_num != 9:
+            return []
+        return [
+            {
+                "tool": "llmbugscanner",
+                "status": "success",
+                "findings": [
+                    {
+                        "category": category,
+                        "title": title,
+                        "description": "",
+                        "severity": "Medium",
+                        "confidence": 0.9,
+                    }
+                ],
+            }
+        ]
+
+    return _fake
+
+
+class TestPocVerification:
+    """MEJORAS2.md #5j: llmbugscanner candidates in the 3 categories
+    exploit_synthesizer has a real PoC template for get verified with
+    run_poc=True before counting - narrow but reliable, per the chosen scope.
+    """
+
+    def test_confirmed_poc_counts_as_tp(self, corpus):
+        # reentrancy/vuln.sol has `function f() public {}` - "f" is the
+        # function _extract_function_hint must recover from free text.
+        contract = corpus / "reentrancy" / "vuln.sol"
+        fake_run_layer = _layer9_llmbugscanner(
+            "access_control", "Potential access control issue in f"
+        )
+
+        def _fake_analyze(self, contract_path, **kwargs):
+            findings = kwargs.get("findings", [])
+            assert kwargs.get("run_poc") is True
+            func = findings[0]["location"]["function"]
+            assert func == "f"  # hint extraction actually worked
+            return {
+                "tool": "exploit_synthesizer",
+                "status": "success",
+                "findings": [
+                    {
+                        "type": "exploit_confirmed",
+                        "location": {"file": contract_path, "line": 0, "function": func},
+                    }
+                ],
+            }
+
+        with (
+            patch("miesc.cli.commands.evaluate.run_layer", side_effect=fake_run_layer),
+            patch(
+                "miesc.adapters.exploit_synthesizer_adapter.ExploitSynthesizerAdapter.analyze",
+                _fake_analyze,
+            ),
+        ):
+            result = _evaluate_contract(
+                contract,
+                {"access_control"},
+                [9],
+                timeout=1,
+                skip_unavailable=True,
+                use_intelligence=False,
+            )
+        assert "access_control" in result["match"]["tp"]
+
+    def test_unconfirmed_poc_does_not_count(self, corpus):
+        contract = corpus / "reentrancy" / "vuln.sol"
+        fake_run_layer = _layer9_llmbugscanner(
+            "access_control", "Potential access control issue in f"
+        )
+
+        def _fake_analyze(self, contract_path, **kwargs):
+            return {
+                "tool": "exploit_synthesizer",
+                "status": "success",
+                "findings": [
+                    {
+                        "type": "exploit_not_confirmed",
+                        "location": {"file": contract_path, "line": 0, "function": "f"},
+                    }
+                ],
+            }
+
+        with (
+            patch("miesc.cli.commands.evaluate.run_layer", side_effect=fake_run_layer),
+            patch(
+                "miesc.adapters.exploit_synthesizer_adapter.ExploitSynthesizerAdapter.analyze",
+                _fake_analyze,
+            ),
+        ):
+            result = _evaluate_contract(
+                contract,
+                {"access_control"},
+                [9],
+                timeout=1,
+                skip_unavailable=True,
+                use_intelligence=False,
+            )
+        assert "access_control" in result["match"]["fn"]
+
+    def test_out_of_scope_category_never_sent_to_synthesizer(self, corpus):
+        """oracle isn't one of the 3 categories with a real PoC template -
+        must never even reach exploit_synthesizer, not just fail to confirm."""
+        contract = corpus / "reentrancy" / "vuln.sol"
+        fake_run_layer = _layer9_llmbugscanner("oracle", "Potential oracle manipulation in f")
+
+        with (
+            patch("miesc.cli.commands.evaluate.run_layer", side_effect=fake_run_layer),
+            patch(
+                "miesc.adapters.exploit_synthesizer_adapter.ExploitSynthesizerAdapter.analyze"
+            ) as mock_analyze,
+        ):
+            result = _evaluate_contract(
+                contract,
+                {"oracle"},
+                [9],
+                timeout=1,
+                skip_unavailable=True,
+                use_intelligence=False,
+            )
+        mock_analyze.assert_not_called()
+        # oracle isn't gated (only the 3 PoC-verifiable categories are), so
+        # it's still counted via the pre-existing raw-detection path - the
+        # point of this test is that it got there without ever calling
+        # exploit_synthesizer, not that it's excluded.
+        assert "oracle" in result["match"]["tp"]
+
+
 class TestRunAblation:
     def test_ablation_computes_per_layer_and_combined(self, corpus):
         gt = _load_ground_truth(corpus)
