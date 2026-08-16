@@ -162,3 +162,39 @@ class TestLayer9SecondPass:
         assert calls["audit_consensus"]["findings_map"] == {}
         assert result.ml_filtered_findings == []
         assert "audit_consensus" in result.tools_success
+
+
+class TestConfirmExploitsFlag:
+    """MEJORAS3.md item 3: run_poc off by default (real forge latency), opt-in
+    via analyze(confirm_exploits=True) - threaded through to exploit_synthesizer
+    as its run_poc kwarg. audit_consensus/vuln_verifier are unaffected (they
+    don't take a run_poc argument)."""
+
+    def test_confirm_exploits_false_by_default(self, tmp_path):
+        contract = tmp_path / "Vault.sol"
+        contract.write_text("contract Vault {}")
+        calls: dict = {}
+        orchestrator = _make_orchestrator(tmp_path, calls)
+
+        orchestrator.analyze(
+            contract_path=str(contract),
+            tools=["exploit_synthesizer"],
+            timeout=30,
+        )
+
+        assert calls["exploit_synthesizer"]["run_poc"] is False
+
+    def test_confirm_exploits_true_threads_through(self, tmp_path):
+        contract = tmp_path / "Vault.sol"
+        contract.write_text("contract Vault {}")
+        calls: dict = {}
+        orchestrator = _make_orchestrator(tmp_path, calls)
+
+        orchestrator.analyze(
+            contract_path=str(contract),
+            tools=["exploit_synthesizer"],
+            timeout=30,
+            confirm_exploits=True,
+        )
+
+        assert calls["exploit_synthesizer"]["run_poc"] is True

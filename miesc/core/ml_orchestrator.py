@@ -279,6 +279,7 @@ class MLOrchestrator:
         timeout: int = 120,
         progress_callback: Optional[Callable[[str, str, float], None]] = None,
         fp_strictness: str = "off",
+        confirm_exploits: bool = False,
     ) -> MLAnalysisResult:
         """
         Ejecuta análisis completo con mejoras ML.
@@ -289,6 +290,12 @@ class MLOrchestrator:
             layers: Capas a ejecutar
             timeout: Timeout por herramienta
             progress_callback: Callback(stage, message, progress)
+            confirm_exploits: MEJORAS3.md item 3 — opt-in. When exploit_synthesizer
+                runs (Layer 9), actually compile+run each generated PoC with
+                Foundry instead of just generating it, so findings can be
+                marked genuinely CONFIRMED/NOT_CONFIRMED rather than always
+                POC_GENERATED. Off by default: real latency (network +
+                compile) that most interactive scans shouldn't pay silently.
 
         Returns:
             MLAnalysisResult con hallazgos mejorados
@@ -449,7 +456,10 @@ class MLOrchestrator:
             findings_map = {tool: res.get("findings", []) for tool, res in raw_results.items()}
             pass2_kwargs = {
                 "audit_consensus": {"findings_map": findings_map},
-                "exploit_synthesizer": {"findings": ml_filtered_findings},
+                "exploit_synthesizer": {
+                    "findings": ml_filtered_findings,
+                    "run_poc": confirm_exploits,
+                },
                 "vuln_verifier": {"findings": ml_filtered_findings},
             }
             for tool in pass2_tools:
