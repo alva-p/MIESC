@@ -823,6 +823,12 @@ _ADMIN_MODIFIERS = re.compile(
 )
 _TEST_FILE = re.compile(r"test[_/]|mock[_/]|\.t\.sol$|Test\.sol$", re.IGNORECASE)
 _OZ_IMPORT = re.compile(r"@openzeppelin|import.*openzeppelin|import.*solmate", re.IGNORECASE)
+# ERC20 metadata + Chainlink price-feed reads: universally `view` by standard
+# convention (EIP-20 for the former, Chainlink's own published interface for
+# the latter) — see Rule 10 below for why that matters for reentrancy FPs.
+_VIEW_ONLY_INTERFACE_CALL = re.compile(
+    r"\.\s*(decimals|symbol|name|latestRoundData|latestAnswer|getRoundData|totalSupply)\s*\($"
+)
 
 
 def context_aware_fp_check(
@@ -928,6 +934,75 @@ def context_aware_fp_check(
                 "All block.timestamp/now usage is deadline/window-guard style — "
                 "not vulnerable to the ~15s miner manipulation margin",
             )
+
+    # Rule 8 (MEJORAS3.md item 1 precision comparison, 2026-08-16): Slither's
+    # own self-labeled non-exploitable reentrancy sub-detectors → FP. Not a
+    # new judgment MIESC is making — trusting the tool's own classification
+    # (its docs: reentrancy-benign = pattern it considers not exploitable,
+    # reentrancy-events = only event-emission variables affected after the
+    # external call, no business-logic state touched). Found by measuring:
+    # unblinding Slither/Aderyn on y2k-finance/nextgen (item 1 fixed a
+    # compile-import bug) surfaced 5 of 6 new reentrancy FPs as exactly
+    # these two sub-detectors, none in ground truth.
+    raw_detector = str(finding.get("type", "")).lower()
+    if raw_detector in ("reentrancy-events", "reentrancy-benign"):
+        return (
+            True,
+            f"Slither's own '{raw_detector}' classification is self-labeled non-exploitable",
+        )
+
+    # Rule 9: Aderyn's reentrancy-state-change on a view/pure function → FP,
+    # guaranteed by the compiler — a view/pure function cannot write storage
+    # at all, so there is no real "state change" after the external call;
+    # what Aderyn is flagging is a local/named-return variable assignment.
+    # Confirmed empirically against PegOracle.sol: a view function assigning
+    # its own named return after reading a Chainlink price feed.
+    if (
+        raw_detector == "reentrancy-state-change"
+        and func_name
+        and func_name
+        not in (
+            "unknown",
+            "<unknown>",
+        )
+    ):
+        sig_match = re.search(rf"function\s+{re.escape(func_name)}\s*\([^)]*\)[^{{;]*", source_code)
+        if sig_match and re.search(r"\b(view|pure)\b", sig_match.group(0)):
+            return (
+                True,
+                f"Function {func_name} is view/pure — cannot write state after an external call",
+            )
+
+    # Rule 10: reentrancy finding whose only nearby external call is to a
+    # well-known view-only interface function (ERC20 metadata, Chainlink
+    # price feeds) → FP. Solidity compiles a call to an interface member
+    # declared `view`/`pure` as a STATICCALL, which by EVM design cannot
+    # write state anywhere in its own call subtree — nothing reachable
+    # through it can reenter and mutate anything, regardless of what the
+    # calling function does afterward (even a constructor, which Rule 9
+    # can't cover since constructors always write state). Confirmed
+    # empirically: PegOracle.sol's constructor calls
+    # AggregatorV3Interface(...).decimals() (Chainlink, view) before writing
+    # its own storage, flagged as reentrancy-state-change with Aderyn's
+    # location.function always "unknown" (never populated), so Rule 9 alone
+    # can't reach this case. A narrow, known-safe allowlist rather than a
+    # blanket "any view call is safe" rule — an unrecognized external call
+    # in the same window still leaves this un-suppressed.
+    if raw_detector.startswith("reentrancy"):
+        line = loc.get("line") if isinstance(loc, dict) else None
+        if line and source_code:
+            src_lines = source_code.split("\n")
+            window = "\n".join(src_lines[max(0, line - 8) : min(len(src_lines), line + 2)])
+            # Matches `.name(` and Solidity's call-options form `.name{...}(`
+            # (e.g. `.call{value: x}(...)`) so a genuinely dangerous call
+            # hiding behind `{value: ...}` isn't invisible to this scan.
+            calls = re.findall(r"\.\s*\w+\s*(?:\{[^{}]*\})?\s*\(", window)
+            if calls and all(_VIEW_ONLY_INTERFACE_CALL.search(c) for c in calls):
+                return (
+                    True,
+                    "Only external call nearby is to a well-known view-only interface "
+                    "function (compiles to STATICCALL — cannot reenter and write state)",
+                )
 
     return False, None
 
