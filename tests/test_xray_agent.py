@@ -89,9 +89,7 @@ class TestEntryPointClassification:
 
         assert {"deposit", "withdraw"} <= permissionless_names
         assert "rescueFunds" in admin_names
-        all_names = permissionless_names | admin_names | {
-            e["name"] for e in buckets["role_gated"]
-        }
+        all_names = permissionless_names | admin_names | {e["name"] for e in buckets["role_gated"]}
         assert "_internalHelper" not in all_names
 
     def test_none_call_graph_returns_empty_buckets(self):

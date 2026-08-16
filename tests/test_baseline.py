@@ -189,7 +189,9 @@ class TestFieldFallbackKeys:
         assert normalize_finding(f)["file"] == "contracts/Bank.sol"
 
     def test_extract_file_falls_back_to_flat_file_path_key(self):
-        assert normalize_finding({"file_path": "contracts/Bank.sol"})["file"] == "contracts/Bank.sol"
+        assert (
+            normalize_finding({"file_path": "contracts/Bank.sol"})["file"] == "contracts/Bank.sol"
+        )
 
     def test_extract_file_falls_back_to_flat_filename_key(self):
         assert normalize_finding({"filename": "contracts/Bank.sol"})["file"] == "contracts/Bank.sol"

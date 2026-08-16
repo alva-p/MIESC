@@ -168,7 +168,7 @@ class TestBuildProtocolGraph:
 
     def test_unresolved_package_import_does_not_crash(self, tmp_path):
         (tmp_path / "Token.sol").write_text(
-            'pragma solidity ^0.8.0;\n'
+            "pragma solidity ^0.8.0;\n"
             'import "@openzeppelin/contracts/token/ERC20/ERC20.sol";\n'
             "contract Token {}\n"
         )
@@ -186,7 +186,7 @@ class TestBuildProtocolGraph:
     def test_no_storage_risk_when_base_has_gap(self, tmp_path):
         (tmp_path / "SafeBase.sol").write_text(BASE_UPGRADEABLE_WITH_GAP)
         (tmp_path / "SafeDerived.sol").write_text(
-            'pragma solidity ^0.8.0;\n'
+            "pragma solidity ^0.8.0;\n"
             'import "./SafeBase.sol";\n'
             "contract SafeDerived is SafeBase {}\n"
         )
@@ -277,9 +277,7 @@ class TestFindCrossContractChains:
         chains = find_cross_contract_chains({"Derived": [finding]}, graph)
         assert len(chains) == 1
 
-    def test_modern_category_not_in_canonical_taxonomy_still_matches_via_fallback(
-        self, tmp_path
-    ):
+    def test_modern_category_not_in_canonical_taxonomy_still_matches_via_fallback(self, tmp_path):
         # business_logic/rounding/fee_on_transfer/erc4626 (evaluate.py's
         # MODERN_CATEGORIES) have no CanonicalCategory equivalent at all —
         # kept covered via a small explicit text fallback instead of

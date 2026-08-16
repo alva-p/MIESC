@@ -48,7 +48,10 @@ class TestModernCategories:
         assert _normalize_category("finding", description="loss of precision") == "rounding"
 
     def test_business_logic_keyword_fallback(self):
-        assert _normalize_category("finding", description="breaks a core invariant") == "business_logic"
+        assert (
+            _normalize_category("finding", description="breaks a core invariant")
+            == "business_logic"
+        )
 
     def test_fee_on_transfer_alias(self):
         assert _normalize_category("fee_on_transfer") == "fee_on_transfer"
@@ -59,7 +62,10 @@ class TestModernCategories:
     def test_classic_category_not_shadowed_by_new_keywords(self):
         # "timestamp" must still resolve to the classic category, not get
         # reclassified by the newer oracle/rounding keyword fallbacks.
-        assert _normalize_category("finding", description="block.timestamp dependence") == "time_manipulation"
+        assert (
+            _normalize_category("finding", description="block.timestamp dependence")
+            == "time_manipulation"
+        )
 
 
 class TestLocationPathLeakage:
@@ -122,15 +128,16 @@ class TestNoiseCheckTypesNeverMatchByKeyword:
         assert _normalize_category("solc-version", description=desc) is None
 
     def test_naming_convention_never_matches_by_keyword(self):
-        assert (
-            _normalize_category("naming-convention", description="reentrancy-like name") is None
-        )
+        assert _normalize_category("naming-convention", description="reentrancy-like name") is None
 
     def test_genuine_arithmetic_type_still_matches(self):
         assert _normalize_category("integer-overflow") == "arithmetic"
 
     def test_genuine_arithmetic_keyword_fallback_still_works(self):
-        assert _normalize_category("finding", description="classic integer overflow bug") == "arithmetic"
+        assert (
+            _normalize_category("finding", description="classic integer overflow bug")
+            == "arithmetic"
+        )
 
 
 class TestGroundTruthJsonManifest:

@@ -232,9 +232,7 @@ def _matches_risk_keyword(finding: Dict[str, Any]) -> Optional[str]:
     if canonical in _RISKY_CANONICAL_CATEGORIES:
         return canonical.value
 
-    text = " ".join(
-        str(finding.get(k, "")) for k in ("type", "title", "message")
-    ).lower()
+    text = " ".join(str(finding.get(k, "")) for k in ("type", "title", "message")).lower()
     for category, keywords in _MODERN_CATEGORY_KEYWORDS.items():
         if any(kw in text for kw in keywords):
             return category

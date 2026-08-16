@@ -369,7 +369,12 @@ def _normalize_category(finding_type: str, title: str = "", description: str = "
         # so e.g. a genuine timestamp-manipulation finding isn't reclassified.
         "oracle": ["oracle", "price feed", "chainlink", "stale price", "depeg"],
         "rounding": ["rounding", "precision loss", "loss of precision", "round down", "round up"],
-        "fee_on_transfer": ["fee-on-transfer", "fee on transfer", "deflationary token", "rebasing token"],
+        "fee_on_transfer": [
+            "fee-on-transfer",
+            "fee on transfer",
+            "deflationary token",
+            "rebasing token",
+        ],
         "erc4626": ["erc4626", "eip-4626", "eip 4626", "share price", "inflation attack"],
         "business_logic": ["business logic", "invariant", "griefing"],
     }
@@ -578,7 +583,6 @@ def _evaluate_contract(
                             f["fp_suppressed"] = True
                 except ImportError:
                     pass  # FP filter not available
-
 
                 # Extract categories from enhanced, FP-filtered findings
                 # (includes zero-recall patterns)

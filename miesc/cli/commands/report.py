@@ -2013,9 +2013,7 @@ def report(
             loc_str_parts = str(location or "")
             loc_file = loc_str_parts.split(":")[0]
             loc_line = (
-                int(loc_str_parts.split(":")[-1].split(" ")[0] or 0)
-                if ":" in loc_str_parts
-                else 0
+                int(loc_str_parts.split(":")[-1].split(" ")[0] or 0) if ":" in loc_str_parts else 0
             )
 
         vulnerable_code = finding.get("vulnerable_code") or _extract_source_code(

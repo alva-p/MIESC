@@ -39,10 +39,7 @@ def classify_cli_error(output: str, cli_name: str) -> str:
             f"{cli_name} rate limited the request. "
             f"{matching_line('rate limit', 'rate_limit', ' 429')}"
         )
-    if any(
-        signal in normalized
-        for signal in ("not logged in", "unauthorized", "authentication")
-    ):
+    if any(signal in normalized for signal in ("not logged in", "unauthorized", "authentication")):
         return f"{cli_name} is not authenticated. Run its login command first."
     return f"{cli_name} CLI failed: {output.strip()[:300]}"
 
@@ -71,9 +68,7 @@ def call_claude_cli(
         cmd.extend(["--append-system-prompt", system_prompt])
 
     try:
-        proc = subprocess.run(
-            cmd, input=prompt, capture_output=True, text=True, timeout=timeout
-        )
+        proc = subprocess.run(cmd, input=prompt, capture_output=True, text=True, timeout=timeout)
     except FileNotFoundError as exc:
         raise RuntimeError(
             "claude CLI not found on PATH. Install: https://claude.com/claude-code"
@@ -92,9 +87,7 @@ def call_claude_cli(
         ) from exc
 
     if wrapper.get("is_error"):
-        raise RuntimeError(
-            classify_cli_error(str(wrapper.get("result", "")), "Claude Code")
-        )
+        raise RuntimeError(classify_cli_error(str(wrapper.get("result", "")), "Claude Code"))
     return str(wrapper.get("result", ""))
 
 

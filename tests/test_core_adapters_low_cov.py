@@ -1250,9 +1250,7 @@ class TestRestViews:
         assert resp.status_code == 400
 
     def test_analyze_tool_missing_body(self, factory):
-        resp = rest.analyze_tool(
-            factory.post("/", {}, format="json", **_API_KEY_HEADER), "slither"
-        )
+        resp = rest.analyze_tool(factory.post("/", {}, format="json", **_API_KEY_HEADER), "slither")
         assert resp.status_code == 400
 
     def test_analyze_tool_valid(self, factory):

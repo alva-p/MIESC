@@ -264,9 +264,7 @@ class TestEvaluateContract:
                 {
                     "tool": "tool_1",
                     "status": "ok",
-                    "findings": [
-                        {"type": "reentrancy-eth", "description": "", "severity": "info"}
-                    ],
+                    "findings": [{"type": "reentrancy-eth", "description": "", "severity": "info"}],
                 }
             ]
 
@@ -294,9 +292,7 @@ class TestEvaluateContract:
                 {
                     "tool": "tool_1",
                     "status": "ok",
-                    "findings": [
-                        {"type": "reentrancy-eth", "description": "", "severity": "info"}
-                    ],
+                    "findings": [{"type": "reentrancy-eth", "description": "", "severity": "info"}],
                 }
             ]
 

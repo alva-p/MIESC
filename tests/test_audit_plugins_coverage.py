@@ -506,7 +506,9 @@ class TestAuditSmart:
         # it with confidence/_llm_validation — that must reach the result,
         # not just the local `validated_findings` variable inside audit.py.
         assert fake_result.ml_filtered_findings == enriched
-        assert fake_result.ml_filtered_findings[0]["_llm_validation"]["reasoning"] == "confirmed valid"
+        assert (
+            fake_result.ml_filtered_findings[0]["_llm_validation"]["reasoning"] == "confirmed valid"
+        )
         assert getattr(fake_result, "ml_filtered_out", []) == []
 
 

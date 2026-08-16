@@ -2148,7 +2148,9 @@ def audit_batch(
             done = {r["contract"] for r in all_contract_results}
             before = len(sol_files)
             sol_files = [f for f in sol_files if f not in done]
-            info(f"Resumed from {checkpoint_path}: {before - len(sol_files)} contracts already done, {len(sol_files)} left")
+            info(
+                f"Resumed from {checkpoint_path}: {before - len(sol_files)} contracts already done, {len(sol_files)} left"
+            )
         except Exception as e:
             warning(f"Could not load checkpoint {checkpoint_path}: {e} — starting fresh")
 
@@ -2271,9 +2273,7 @@ def audit_batch(
                         contract = resolve_finding_contract(finding, protocol_graph)
                         if contract:
                             findings_by_contract.setdefault(contract, []).append(finding)
-            cross_contract_chains = find_cross_contract_chains(
-                findings_by_contract, protocol_graph
-            )
+            cross_contract_chains = find_cross_contract_chains(findings_by_contract, protocol_graph)
         except Exception as e:
             logger.debug(f"Cross-contract chain detection skipped: {e}")
 

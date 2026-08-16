@@ -464,7 +464,9 @@ class TestContextAwareFP:
         assert is_fp is False
 
     def test_timestamp_finding_not_suppressed_when_used_for_randomness(self):
-        code = "function f() { require(block.timestamp <= deadline); uint r = block.timestamp % 100; }"
+        code = (
+            "function f() { require(block.timestamp <= deadline); uint r = block.timestamp % 100; }"
+        )
         finding = {"type": "use_of_block_timestamp", "severity": "Medium", "location": {}}
         is_fp, _ = context_aware_fp_check(finding, code)
         assert is_fp is False

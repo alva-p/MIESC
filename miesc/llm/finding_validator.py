@@ -678,7 +678,10 @@ Respond ONLY with a valid JSON object (no markdown, no extra text):
 
         func_name = self._extract_function_name(finding)
         if not func_name:
-            return {"verdict": "unknown", "reason": "could not determine function from finding location"}
+            return {
+                "verdict": "unknown",
+                "reason": "could not determine function from finding location",
+            }
 
         try:
             from miesc.ml.call_graph import CallGraphBuilder
@@ -688,7 +691,10 @@ Respond ONLY with a valid JSON object (no markdown, no extra text):
             return {"verdict": "unknown", "reason": f"call graph build failed: {e}"}
 
         if func_name not in graph.nodes:
-            return {"verdict": "unknown", "reason": f"function '{func_name}' not found in call graph"}
+            return {
+                "verdict": "unknown",
+                "reason": f"function '{func_name}' not found in call graph",
+            }
 
         entry_points = {f.name for f in graph.get_entry_points()}
         if func_name in entry_points:
@@ -745,7 +751,9 @@ Respond ONLY with a valid JSON object (no markdown, no extra text):
                 "gate4_impact": data.get("impact"),
             }
         except Exception as e:
-            logger.debug(f"Gate 0/3/4 enrichment failed for {_safe_mapping_get(finding, 'id')}: {e}")
+            logger.debug(
+                f"Gate 0/3/4 enrichment failed for {_safe_mapping_get(finding, 'id')}: {e}"
+            )
             return default
 
     async def _call_ollama(self, prompt: str) -> str:
