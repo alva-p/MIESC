@@ -75,6 +75,55 @@ netted zero change. The remaining 6 `nextgen/` files' dependencies were
 gas_analyzer, etc.) were never affected by any of this and still ran on
 every file.
 
+### `y2k-finance/` resolved (2026-08-16, MEJORAS3.md item 1)
+
+Unlike `nextgen/`, this corpus's blind spot wasn't missing relative-import
+siblings — it was **package imports** (`@solmate/`, `@chainlink/`,
+`@openzeppelin/contracts/token/ERC1155/...`). All 4 `y2k-finance/` files
+using them failed to compile under Slither/Aderyn (`ParserError: Source ...
+not found`), leaving 40% of this corpus's Layer 1 blind. Root-caused to
+three separate adapter bugs (not a corpus problem, fixed in
+`SlitherAdapter`/`AderynAdapter` for every user, not just this benchmark):
+
+1. `@solmate/...` and `@chainlink/...` (npm-style `@`-prefixed aliases) were
+   canonicalized to a single guessed dependency key (`"solmate"`,
+   `"@chainlink/contracts"`) that didn't match what these files actually
+   wrote, so the remapping never lined up with the real import prefix.
+2. Slither's `force_solc` auto-detection forced raw `solc` (no remapping
+   support at all) for any standalone file, `--compile-force-framework solc`
+   was appended whenever a pragma-derived `solc_version` was set — which is
+   virtually always — silently defeating the dependency-workspace/foundry.toml
+   path even when it successfully installed the right dependency.
+3. Neither adapter deferred to a project's own already-vendored `lib/` when
+   one existed; both always spun up an isolated temp workspace and tried a
+   fresh, floating-version `forge install`, ignoring pinned versions.
+
+Fixing (1)-(3) alone doesn't fully solve *this* corpus, though: it's a real
+2022-era contract (fixed `pragma solidity 0.8.15`), and floating-latest
+OpenZeppelin/Chainlink have since drifted incompatibly (OpenZeppelin v5
+moved `ReentrancyGuard.sol` and requires solc `^0.8.24` in
+`ERC1155Supply.sol`; `smartcontractkit/chainlink`'s default branch dropped
+its `contracts/` directory entirely, and even installing an old pinned tag
+of that monorepo reliably hangs on nested-submodule checkout). So, same
+policy as `nextgen/` above: the corpus's own dependency closure was vendored
+here, pinned to versions contemporaneous with the original audit —
+OpenZeppelin `v4.8.3`, `transmissions11/solmate` (unpinned; solmate is small
+and hasn't broken compatibility), and the 3 Chainlink aggregator interfaces
+from `smartcontractkit/chainlink-evm@v0.3.3` (the same files, just from the
+repo Chainlink split them into — the old monorepo path is what hangs).
+`y2k-finance/foundry.toml` + `y2k-finance/lib/` here mirror the real
+project's own `remappings.txt`
+(`code-423n4/2022-09-y2k-finance/remappings.txt`). The exact 13-file
+transitive closure (not a full library clone) was determined by actually
+running `forge build` against this pinned set and taking its real output
+manifest — not guessed by hand.
+
+**Measured impact:** all 5 `y2k-finance/` files now compile and produce
+findings under both Slither and Aderyn (previously: 0/5 — every file has at
+least one package import, including the otherwise-standalone
+`PegOracle.sol`). `evaluate corpus benchmarks/datasets/solodit-real --layers
+1` now runs Layer 1 on the full 10-contract corpus with no compile failures.
+
 ## Licensing
 
 Contracts retain their original project licenses (see each contest repo).
