@@ -430,6 +430,23 @@ def run_tool(tool: str, contract: str, timeout: int = 0, **kwargs: Any) -> Dict[
         }
 
     try:
+        # Skip tools that don't apply to this file type (e.g. Solidity-only
+        # tools against a .vy file) before spending time on availability
+        # checks or a doomed analyze() call. can_analyze defaults to .sol-only
+        # (ToolAdapter.can_analyze) or is omitted entirely by duck-typed
+        # adapters that accept anything — both are treated as "applies".
+        can_analyze = getattr(adapter, "can_analyze", None)
+        if callable(can_analyze) and not can_analyze(contract):
+            return {
+                "tool": tool,
+                "contract": contract,
+                "status": "skipped",
+                "findings": [],
+                "execution_time": 0,
+                "timestamp": datetime.now().isoformat(),
+                "error": f"{tool} does not support this file type",
+            }
+
         # Check if tool is available
         from miesc.core.tool_protocol import ToolStatus
 
@@ -558,6 +575,10 @@ def _print_tool_result(tool: str, result: Dict[str, Any]) -> None:
         success(f"{tool}: {findings_count} findings in {result.get('execution_time', 0):.1f}s")
     elif result["status"] == "not_available":
         warning(f"{tool}: not installed")
+    elif result["status"] == "skipped":
+        # Doesn't apply to this file type (e.g. a Solidity-only tool against
+        # a .vy file) — routine, not worth a print line on every run.
+        pass
     else:
         warning(f"{tool}: {result.get('error', 'Unknown error')}")
 
