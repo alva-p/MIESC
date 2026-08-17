@@ -740,6 +740,50 @@ class TestGPTScanAdapter(TestAdapterBase):
         assert metadata.category is not None
 
 
+class TestGPTScanModelDetection:
+    """MEJORAS3.md item 11's business_logic follow-up: _detect_best_model()
+    used to hardcode a full tag (e.g. "qwen2.5-coder:14b") whenever it merely
+    saw the *family* name among installed models, so a host with only
+    qwen2.5-coder:7b-16k installed (no :14b) still got told to request
+    ":14b" - which Ollama's /api/generate 404s on. Confirmed against a real
+    Ollama server: analyze() went from an immediate 404 to a real response
+    after this fix."""
+
+    def test_returns_actually_installed_tag_not_a_hardcoded_one(self):
+        from miesc.adapters.gptscan_adapter import GPTScanAdapter
+
+        adapter = GPTScanAdapter()
+        with patch(
+            "miesc.core.ollama_models.list_ollama_models",
+            return_value=["qwen2.5-coder:7b-16k"],
+        ):
+            assert adapter._detect_best_model() == "qwen2.5-coder:7b-16k"
+
+    def test_prefers_exact_14b_when_actually_installed(self):
+        from miesc.adapters.gptscan_adapter import GPTScanAdapter
+
+        adapter = GPTScanAdapter()
+        with patch(
+            "miesc.core.ollama_models.list_ollama_models",
+            return_value=["qwen2.5-coder:14b", "qwen2.5-coder:7b-16k"],
+        ):
+            assert adapter._detect_best_model() == "qwen2.5-coder:14b"
+
+    def test_env_override_wins(self, monkeypatch):
+        from miesc.adapters.gptscan_adapter import GPTScanAdapter
+
+        monkeypatch.setenv("MIESC_LLM_MODEL", "custom-model:99b")
+        adapter = GPTScanAdapter()
+        assert adapter._detect_best_model() == "custom-model:99b"
+
+    def test_fallback_when_nothing_installed(self):
+        from miesc.adapters.gptscan_adapter import GPTScanAdapter
+
+        adapter = GPTScanAdapter()
+        with patch("miesc.core.ollama_models.list_ollama_models", return_value=[]):
+            assert adapter._detect_best_model() == "qwen2.5-coder:14b"
+
+
 class TestLLMSmartAuditAdapter(TestAdapterBase):
     """Tests for LLMSmartAuditAdapter."""
 
