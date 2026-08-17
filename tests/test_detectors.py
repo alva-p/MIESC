@@ -325,6 +325,35 @@ class TestMEVExposureDetector:
         if findings:
             assert any(f.severity == Severity.MEDIUM for f in findings)
 
+    def test_bare_withdraw_still_flagged(self):
+        """Sanity check for the word-boundary fix below: a real bare
+        `withdraw(...)` public function must still be flagged."""
+        from miesc.detectors.defi_detectors import MEVExposureDetector
+
+        detector = MEVExposureDetector()
+        source = """
+        function withdraw(uint256 amount) public {
+            _withdraw(msg.sender, amount);
+        }
+        """
+        findings = detector.detect(source)
+        assert len(findings) >= 1
+
+    def test_admin_gated_withdraw_variant_not_flagged(self):
+        """MEJORAS3.md item 13 noise audit: the withdraw pattern matched any
+        *Withdraw substring (e.g. emergencyWithdraw), including functions
+        gated by an admin-only modifier - not front-runnable by anyone."""
+        from miesc.detectors.defi_detectors import MEVExposureDetector
+
+        detector = MEVExposureDetector()
+        source = """
+        function emergencyWithdraw() public FunctionAdminRequired(this.emergencyWithdraw.selector) {
+            payable(msg.sender).transfer(address(this).balance);
+        }
+        """
+        findings = detector.detect(source)
+        assert len(findings) == 0
+
 
 class TestPriceManipulationDetector:
     """Tests for PriceManipulationDetector."""
@@ -699,6 +728,39 @@ class TestRugPullDetector:
         # Should not warn about ownership not renounced
         ownership_warnings = [f for f in findings if "Not Renounced" in f.title]
         assert len(ownership_warnings) == 0
+
+    def test_mint_variants_still_flagged(self):
+        """Sanity check for the HIDDEN_MINT_PATTERNS fix below: real
+        mint-named, non-view/pure functions must still be flagged."""
+        from miesc.detectors.advanced_detectors import RugPullDetector
+
+        detector = RugPullDetector()
+        source = """
+        function mintTo(address to) external {}
+        function safeMint(address to, uint256 id) public {}
+        function batchMint(address[] calldata tos) external {}
+        """
+        findings = detector.detect(source)
+        mint_findings = [f for f in findings if "Mint function detected" in f.description]
+        assert len(mint_findings) == 3
+
+    def test_unrelated_identifiers_containing_mint_not_flagged(self):
+        """MEJORAS3.md item 13 noise audit: \\w*[Mm]int\\w* matched any
+        identifier merely containing "mint" (isMinterContract, ...Minting...),
+        and a negative lookahead placed after a greedy [^{]* never actually
+        excluded view/pure functions - so read-only lookups got flagged as
+        "check for access control" mint risks."""
+        from miesc.detectors.advanced_detectors import RugPullDetector
+
+        detector = RugPullDetector()
+        source = """
+        function retrieveCollectionMintingDetails(uint256 id) public view returns (uint256) {}
+        function isMinterContract() external view returns (bool) {}
+        function mintPrice() public view returns (uint256) {}
+        """
+        findings = detector.detect(source)
+        mint_findings = [f for f in findings if "Mint function detected" in f.description]
+        assert len(mint_findings) == 0
 
 
 class TestGovernanceDetector:

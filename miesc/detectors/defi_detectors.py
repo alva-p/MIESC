@@ -373,7 +373,9 @@ class MEVExposureDetector(DeFiDetector):
         (r"arbitrage|arb\s*\(", "Arbitrage function - direct MEV target"),
         (r"commit.*reveal|reveal.*commit", "Commit-reveal pattern - timing attacks possible"),
         (r"pendingRewards|claimRewards", "Reward claiming - front-running target"),
-        (r"withdraw\s*\([^)]*\)\s*public", "Public withdrawal - can be front-run"),
+        # \b required: without it this matched any *Withdraw substring (e.g.
+        # "emergencyWithdraw", admin-gated - not front-runnable by anyone).
+        (r"\bwithdraw\s*\([^)]*\)\s*public", "Public withdrawal - can be front-run"),
     ]
 
     # Protection patterns
