@@ -19,7 +19,7 @@ import re
 import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple, cast
@@ -87,8 +87,12 @@ class ReconResult:
     framework: str = "unknown"
     git_commits: int = 0
     duration_ms: float = 0.0
-    # Optional, caller-supplied miesc.ml.protocol_graph.ProtocolGraph (MEJORAS.md #5) —
-    # carried through unchanged, not yet consumed by Phases 2-4 (see #5b follow-up).
+    # Optional, caller-supplied miesc.ml.protocol_graph.ProtocolGraph (MEJORAS.md #5,
+    # threaded through by _analyze_directory - MEJORAS3.md item 11) - carried
+    # through unchanged. Phases 2-4 don't read it directly; cross-file exposure
+    # is computed once, after every file's own analyze() finishes, by
+    # _analyze_directory's find_cross_contract_chains() pass over the merged
+    # findings (same mechanism `audit batch` already uses).
     protocol_graph: Any = None
 
 
@@ -102,6 +106,14 @@ class ScanResult:
     filtered_findings: List[Dict[str, Any]] = field(default_factory=list)
     severity_distribution: Dict[str, int] = field(default_factory=dict)
     duration_ms: float = 0.0
+
+
+# Directory names excluded from `audit deep`'s recursive .sol discovery
+# (MEJORAS3.md item 11) - vendored dependencies and build output, not the
+# protocol's own source. Without this, pointing the command at a project
+# root (not its src/) sweeps in every installed lib (OpenZeppelin, solmate,
+# forge-std, ...) as if it were part of the protocol under audit.
+_VENDOR_DIR_NAMES = {"lib", "node_modules", "out", "cache", "artifacts", "broadcast"}
 
 
 # ---------------------------------------------------------------------------
@@ -201,10 +213,21 @@ class DeepAuditAgent(BaseAgent):
     # -----------------------------------------------------------------------
 
     def analyze(self, contract_path: str, **kwargs: Any) -> Dict[str, Any]:
-        """Run the 4-phase agentic deep audit."""
+        """Run the 4-phase agentic deep audit.
+
+        contract_path may be a directory (MEJORAS3.md item 11) — delegates to
+        _analyze_directory, which builds one miesc.ml.protocol_graph.ProtocolGraph
+        across every .sol file and runs this same single-file pipeline per file,
+        each with that shared graph attached to its own Phase 1 recon result.
+        """
+        path_obj = Path(contract_path)
+        if path_obj.is_dir():
+            return self._analyze_directory(path_obj, **kwargs)
+
         self._start_time = time.monotonic()
         self.contract_path = contract_path
-        source_code = Path(contract_path).read_text()
+        source_code = path_obj.read_text()
+        protocol_graph = kwargs.get("protocol_graph")
 
         logger.info(f"DeepAuditAgent starting on {contract_path}")
         report: Dict[str, Any] = {
@@ -219,7 +242,9 @@ class DeepAuditAgent(BaseAgent):
         # Phase 1: Reconnaissance
         self._current_phase = AuditPhase.RECONNAISSANCE
         logger.info("Phase 1: Reconnaissance")
-        recon = self._phase_reconnaissance(contract_path, source_code)
+        recon = self._phase_reconnaissance(
+            contract_path, source_code, protocol_graph=protocol_graph
+        )
         report["phases"]["reconnaissance"] = {
             "risk_profile": recon.risk_profile,
             "entry_points": recon.entry_points[:10],
@@ -312,13 +337,126 @@ class DeepAuditAgent(BaseAgent):
         )
         return report
 
+    def _analyze_directory(self, dir_path: Path, **kwargs: Any) -> Dict[str, Any]:
+        """Run the 4-phase pipeline over every .sol file in dir_path as one protocol.
+
+        Same shape as `miesc audit batch` (glob + one shared ProtocolGraph +
+        find_cross_contract_chains over the merged findings - see
+        miesc/cli/commands/audit.py's audit_batch), reused here so a directory
+        gets real cross-file exposure signal instead of N unrelated single-file
+        reports. Each file still runs the full, unchanged single-file pipeline
+        (recon/scan/investigation/synthesis) - only the graph and the final
+        cross-contract-chain pass are shared across files.
+        """
+        from miesc.ml.protocol_graph import (
+            build_protocol_graph,
+            find_cross_contract_chains,
+            resolve_finding_contract,
+        )
+
+        directory_start = time.monotonic()
+        sol_files = sorted(
+            str(p)
+            for p in dir_path.rglob("*.sol")
+            if not _VENDOR_DIR_NAMES.intersection(p.relative_to(dir_path).parts[:-1])
+        )
+        if not sol_files:
+            return {
+                "contract": str(dir_path),
+                "agent": "DeepAuditAgent",
+                "files": [],
+                "findings": [],
+                "exploit_chains": [],
+                "cross_contract_chains": [],
+                "metadata": {"error": f"No .sol files found under {dir_path}"},
+            }
+
+        logger.info(f"DeepAuditAgent (directory): {len(sol_files)} files under {dir_path}")
+        protocol_graph = build_protocol_graph(sol_files)
+
+        file_reports: List[Dict[str, Any]] = []
+        findings_by_contract: Dict[str, List[Dict[str, Any]]] = {}
+        timed_out = False
+
+        for sol_file in sol_files:
+            remaining = self.config.timeout_seconds - (time.monotonic() - directory_start)
+            if remaining <= 0:
+                timed_out = True
+                break
+
+            file_config = replace(self.config, timeout_seconds=remaining)
+            file_agent = DeepAuditAgent(config=file_config)
+            file_report = file_agent.analyze(sol_file, protocol_graph=protocol_graph)
+            file_reports.append(file_report)
+
+            for finding in file_report.get("findings", []):
+                contract = resolve_finding_contract(finding, protocol_graph)
+                if contract:
+                    findings_by_contract.setdefault(contract, []).append(finding)
+
+        cross_contract_chains = find_cross_contract_chains(findings_by_contract, protocol_graph)
+
+        all_findings = [f for report in file_reports for f in report.get("findings", [])]
+        all_chains = [c for report in file_reports for c in report.get("exploit_chains", [])]
+        elapsed = (time.monotonic() - directory_start) * 1000
+
+        # Computed from the merged findings, not summed from each file's own
+        # `summary` - a file whose own analyze() call hit its (shrunk) per-file
+        # timeout during Phase 2/3 returns early with real findings but no
+        # `summary` (only Phase 4/_phase_synthesis sets one), which would
+        # otherwise silently drop those findings from every severity count.
+        aggregated_summary: Dict[str, int] = {
+            "CRITICAL": 0,
+            "HIGH": 0,
+            "MEDIUM": 0,
+            "LOW": 0,
+            "INFO": 0,
+        }
+        for finding in all_findings:
+            sev = str(finding.get("severity", "")).upper()
+            if sev in aggregated_summary:
+                aggregated_summary[sev] += 1
+        aggregated_summary["total"] = sum(aggregated_summary.values())
+
+        result: Dict[str, Any] = {
+            "contract": str(dir_path),
+            "agent": "DeepAuditAgent",
+            "files": file_reports,
+            "protocol": {
+                "contracts": list(protocol_graph.contracts.keys()),
+                "inheritance_edges": protocol_graph.inheritance_edges,
+                "call_edges": protocol_graph.call_edges,
+                "unresolved_imports": protocol_graph.unresolved_imports,
+                "storage_risk": protocol_graph.storage_risk,
+            },
+            "findings": all_findings,
+            "exploit_chains": all_chains,
+            "cross_contract_chains": cross_contract_chains,
+            "summary": aggregated_summary,
+            "metadata": {
+                "files_analyzed": len(file_reports),
+                "files_total": len(sol_files),
+                "total_duration_ms": elapsed,
+                "timed_out": timed_out,
+            },
+        }
+        logger.info(
+            f"DeepAuditAgent (directory) complete: {len(file_reports)}/{len(sol_files)} files, "
+            f"{len(all_findings)} findings, {len(cross_contract_chains)} cross-contract chains, "
+            f"{elapsed:.0f}ms"
+        )
+        return result
+
     # -----------------------------------------------------------------------
     # Phase 1: Reconnaissance
     # -----------------------------------------------------------------------
 
-    def _phase_reconnaissance(self, contract_path: str, source_code: str) -> ReconResult:
+    def _phase_reconnaissance(
+        self, contract_path: str, source_code: str, protocol_graph: Any = None
+    ) -> ReconResult:
         t0 = time.monotonic()
         result = ReconResult()
+        result.protocol_graph = protocol_graph
 
         # Call graph analysis
         if self.config.enable_call_graph:
@@ -358,9 +496,9 @@ class DeepAuditAgent(BaseAgent):
         protocol_graph: optional miesc.ml.protocol_graph.ProtocolGraph built by a caller
         that already scanned the whole protocol — attached as-is, not otherwise used yet.
         """
-        result = self._phase_reconnaissance(contract_path, Path(contract_path).read_text())
-        result.protocol_graph = protocol_graph
-        return result
+        return self._phase_reconnaissance(
+            contract_path, Path(contract_path).read_text(), protocol_graph=protocol_graph
+        )
 
     def _count_git_commits(self, contract_path: str) -> int:
         """Commits touching this file, for attack-surface weighting. 0 if not a git repo."""

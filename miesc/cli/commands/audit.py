@@ -2517,12 +2517,17 @@ def audit_deep(
     - Generates LLM narrative (local Ollama, optional)
     - 100% local execution, DPGA compliant
 
+    CONTRACT may be a directory: every .sol file under it is analyzed as one
+    protocol (shared cross-file call/inheritance graph, cross-contract exploit
+    chains), not as unrelated single-file reports.
+
     \b
     Examples:
         miesc audit deep contract.sol
         miesc audit deep contract.sol --no-llm
         miesc audit deep contract.sol -t 300
         miesc audit deep contract.sol -o report.json --ci
+        miesc audit deep ./src
     """
     print_banner()
 
@@ -2566,6 +2571,18 @@ def audit_deep(
     # Display results
     summary = result.get("summary", {})
     phases = result.get("phases", {})
+    is_directory = "files" in result
+
+    if is_directory:
+        cross_chains = result.get("cross_contract_chains", [])
+        info(
+            f"Protocol: {result['metadata'].get('files_analyzed', 0)}/"
+            f"{result['metadata'].get('files_total', 0)} files analyzed, "
+            f"{len(result.get('protocol', {}).get('contracts', []))} contracts, "
+            f"{len(cross_chains)} cross-contract exposure chains"
+        )
+        for chain in cross_chains[:10]:
+            info(f"  {chain['reason']}")
 
     if RICH_AVAILABLE:
         from rich.panel import Panel
