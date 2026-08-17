@@ -70,6 +70,57 @@ project carries. Before deciding whether to invest in extending detector coverag
 more real Vyper audits should go through the same process — Solodit has 418
 Vyper-tagged findings total, this pilot used exactly one small contest's worth.
 
+## Expansion to 3 protocols (2026-08-17, MEJORAS3.md item 7/8)
+
+**Item 7 fixed first:** `run_layer()`/`run_tool()` (`miesc/cli/utils.py`, `miesc/api/rest.py`)
+never routed `.vy` files anywhere — no `VyperAdapter` existed, and neither `run_tool`
+consulted `ToolAdapter.can_analyze()` (defined on the base class since early on, never
+called). Added `VyperAdapter` (`miesc/adapters/vyper_adapter.py`, wraps the existing
+`VyperAnalyzer`), registered it as `"vyper"` in `LAYERS[1]`/`ADAPTER_MAP`, and made both
+`run_tool` implementations skip a tool when `can_analyze()` says no (root-cause fix, not
+per-adapter — also stops Solidity-only tools from being invoked against `.vy` files, and
+vice versa, everywhere, not just for Vyper). `evaluate corpus` now measures Vyper the same
+way it measures Solidity — no more manual `VyperAnalyzer` invocation. 6 new tests in
+`tests/test_vyper_routing.py`.
+
+**Item 8: corpus expanded from 1 to 3 real audited protocols** to get enough evidence to
+decide whether `business_logic`/`denial_of_service`/`time_manipulation` (0% recall in the
+pilot) are worth new detectors, per the pilot's own recommendation. Added **Yield Basis**
+(Sherlock, 2025-08, 6 of 7 HIGH/MEDIUM findings used — see `ground_truth.json` `_meta` for
+the one exclusion and the commit-reconstruction method, since the audited branch has since
+moved on) and **Unstoppable** (Sherlock, 2023-06, all 17 HIGH/MEDIUM findings used, audited
+commit still live). Total corpus: 10 files, 28 ground-truth findings, 3 protocols.
+
+**Measured** (`evaluate corpus benchmarks/datasets/vyper-real --layers 1`, both rows through
+the *same* standardized harness now that item 7 wired it up — not compared against the old
+25%/25% manual-matching pilot number above, which used a different method entirely; see
+item 17 of `MEJORAS3.md` for why that comparison would be misleading):
+
+| Corpus | Precision | Recall | F1 | TP/FP/FN |
+|---|---|---|---|---|
+| fair-funding only (1 protocol) | 18.2% | 50.0% | 26.7% | 2/9/2 |
+| 3-protocol corpus | 14.3% | 33.3% | 20.0% | 6/36/12 |
+
+`business_logic` and `denial_of_service` are **still 0% recall** (5 files each, 0 TP) across
+all 3 protocols — the original pilot's conclusion holds with 3x the evidence: no detector in
+`VyperVulnerability`'s vocabulary targets these, and (per the equivalent Solidity
+investigation, MEJORAS3.md item 2/16) they're not a good match for regex/pattern rules —
+mostly caseby-case accounting logic, not a repeatable syntactic pattern. `fee_on_transfer`
+is still a 1-file sample (0/1), too small to act on either way.
+
+**Not implemented, and this is the actual answer to item 8's question:** no new Vyper
+detectors were written. The evidence points the other way — recall dropped (50.0%→33.3%) and
+precision dropped too (18.2%→14.3%) going from 1 to 3 protocols, because two `VyperVulnerability`
+checks (`missing_access_control`,
+plus a `_normalize_category` keyword-matching quirk in the eval harness scoring the same
+finding into `time_manipulation`/`front_running` buckets it doesn't belong to) generate a lot
+of noise against these 3 real protocols — `missing_access_control` fires on externally-callable
+"anyone can trigger, order-authorization happens elsewhere" functions (keeper-style
+`execute_dca_order`/`execute_limit_order`) that are correctly unrestricted. **The real next
+step for this adapter isn't new detectors, it's the same false-positive-noise investigation
+Ronda 3 already did for Solidity (items 12/15)** — not done here, flagged as a candidate for
+whoever picks this up next, not silently expanded into this item's scope.
+
 ## Licensing
 
 Contracts retain their original project license (see the contest repo). No

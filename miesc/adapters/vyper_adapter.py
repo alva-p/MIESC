@@ -60,6 +60,12 @@ from miesc.core.chain_abstraction import (
     Visibility,
     register_chain_analyzer,
 )
+from miesc.core.tool_protocol import (
+    ToolCapability,
+    ToolCategory,
+    ToolMetadata,
+    ToolStatus,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -525,6 +531,62 @@ class VyperAnalyzer(AbstractChainAnalyzer):
                 )
             )
         return findings
+
+
+# ============================================================================
+# ToolAdapter wrapper — lets run_layer()/run_tool() (miesc/cli/utils.py) drive
+# VyperAnalyzer the same way as any Solidity tool (MEJORAS3.md item 7: before
+# this, `.vy` files had no route into the evaluate/scan tool-execution path;
+# `miesc analyze` invoked VyperAnalyzer directly instead).
+# ============================================================================
+
+
+class VyperAdapter:
+    """ToolAdapter-shaped wrapper around VyperAnalyzer (duck-typed, same
+
+    pattern as DeFiAdapter/SmartBugsDetectorAdapter — no external binary, no
+    ToolAdapter subclassing needed for run_layer to drive it).
+    """
+
+    name = "vyper"
+
+    def __init__(self) -> None:
+        self._analyzer = VyperAnalyzer()
+
+    def is_available(self) -> ToolStatus:
+        # Pure Python pattern matching — no external compiler/binary required.
+        return ToolStatus.AVAILABLE
+
+    def can_analyze(self, contract_path: str) -> bool:
+        return self._analyzer.can_analyze(contract_path)
+
+    def analyze(self, contract_path: str, timeout: int = 0, **kwargs: Any) -> Dict[str, Any]:
+        # Regex/AST-free pattern matching over source text — effectively
+        # instant, so `timeout` (used by subprocess-based adapters) doesn't
+        # apply here.
+        return self._analyzer.analyze(contract_path)
+
+    def get_metadata(self) -> ToolMetadata:
+        return ToolMetadata(
+            name=self.name,
+            version=self._analyzer.version,
+            category=ToolCategory.STATIC_ANALYSIS,
+            author="Fernando Boiero",
+            license="AGPL-3.0",
+            homepage="https://github.com/fboiero/MIESC",
+            repository="https://github.com/fboiero/MIESC",
+            documentation="https://fboiero.github.io/MIESC/docs/MULTICHAIN.html",
+            installation_cmd="",  # bundled — no separate install step
+            capabilities=[
+                ToolCapability(
+                    name="vyper_pattern_detection",
+                    description="Pattern-based vulnerability detection for Vyper (.vy) contracts",
+                    supported_languages=["vyper"],
+                    detection_types=[v.value for v in VyperVulnerability],
+                )
+            ],
+            is_optional=True,
+        )
 
 
 # ============================================================================
