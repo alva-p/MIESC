@@ -20,6 +20,20 @@
         "findings_used": 25,
         "excluded": "5 GAS findings (G-01..G-05) - not security vulnerabilities",
         "completeness_check": "sequential numbering H-01..H-09, M-01..M-16, G-01..G-05 with zero gaps"
+      },
+      {
+        "source": "Code4rena contest, protocol=Sequence (2025-10)",
+        "solodit_query": "search_findings(protocol=\"Sequence\", firms=[\"Code4rena\"])",
+        "repo": "https://github.com/code-423n4/2025-10-sequence",
+        "audited_commit": "b0e5fb15bf6735ec9aaba02f5eca28a7882d815d",
+        "commit_note": "Two commits are cited across the 6 findings (b0e5fb15... and an earlier ccc328be..., which is an ancestor of b0e5fb15). Verified by reading the actual file content that all 6 findings' buggy code patterns are present at b0e5fb15, so a single commit was used for the whole corpus instead of mixing two.",
+        "findings_total": 25,
+        "findings_used": 6,
+        "excluded": "19 LOW findings (a separate, non-sequentially-numbered QA batch, [01]..[19]) - not security vulnerabilities at the HIGH/MEDIUM bar this corpus uses",
+        "completeness_check": "sequential numbering H-01..H-02, M-01..M-04 with zero gaps",
+        "added_by": "fresh validation exercise (2026-08-17), not part of MEJORAS3.md's own roadmap - built to answer \"can MIESC find findings from a real report it has never seen\" on a protocol not already in any corpus",
+        "dependency_note": "src/ (49 files) has zero vendor/package imports - fully self-contained, no lib/ vendoring needed for this one, unlike y2k-finance",
+        "measured_result": "Isolated run (--layers 1,7, this protocol only): precision 25.0%, recall 16.7%, F1 20.0%, TP/FP/FN 1/3/5. The 1 nominal TP (BaseAuth.sol, denial_of_service, matching M-03) was checked by hand, not taken at face value: it comes from threat_model's generic 'external function without authentication' STRIDE template, not from anything that read or understood the real bug (recoverSapientSignature returning a hardcoded constant instead of the real image hash). Same file, same category, coincidental, not a real detection of the root cause - the honest read is closer to 0/6 genuine detections on findings MIESC had never seen before. All 3 access_control/front_running findings (signature/session logic bugs) were missed outright; this protocol's bugs are almost entirely multi-step signature/session-flow logic, a harder class than the vault/oracle bugs the other 2 protocols are mostly made of."
       }
     ],
     "note": "Ground truth = real HIGH/MEDIUM findings from complete, verified audit reports (sequential finding IDs, no gaps), not curated subsets. Categories include MODERN_CATEGORIES (business_logic, oracle, rounding, fee_on_transfer, erc4626) alongside SmartBugs categories.",
@@ -385,6 +399,54 @@
       "severity": "MEDIUM",
       "title": "function changeController() has rug potential",
       "protocol": "Y2K Finance"
+    },
+    {
+      "id": "H-01",
+      "file": "sequence/src/modules/auth/BaseSig.sol",
+      "category": "access_control",
+      "severity": "HIGH",
+      "title": "Chained signature with checkpoint usage disabled can bypass all checkpointer validation",
+      "protocol": "Sequence"
+    },
+    {
+      "id": "H-02",
+      "file": "sequence/src/modules/Calls.sol",
+      "category": "front_running",
+      "severity": "HIGH",
+      "title": "Partial signature replay/frontrunning attack on session calls",
+      "protocol": "Sequence"
+    },
+    {
+      "id": "M-01",
+      "file": "sequence/src/extensions/sessions/SessionSig.sol",
+      "category": "access_control",
+      "severity": "MEDIUM",
+      "title": "Session signatures replay across wallets due to missing wallet binding",
+      "protocol": "Sequence"
+    },
+    {
+      "id": "M-02",
+      "file": "sequence/src/modules/ERC4337v07.sol",
+      "category": "denial_of_service",
+      "severity": "MEDIUM",
+      "title": "Static signatures bound to caller revert under ERC-4337, causing DoS",
+      "protocol": "Sequence"
+    },
+    {
+      "id": "M-03",
+      "file": "sequence/src/modules/auth/BaseAuth.sol",
+      "category": "denial_of_service",
+      "severity": "MEDIUM",
+      "title": "BaseAuth.recoverSapientSignature returns a constant instead of signer image hash, breaking sapient signer flows",
+      "protocol": "Sequence"
+    },
+    {
+      "id": "M-04",
+      "file": "sequence/src/Factory.sol",
+      "category": "denial_of_service",
+      "severity": "MEDIUM",
+      "title": "Factory deploy reverts instead of returning address when account already exists",
+      "protocol": "Sequence"
     }
   ]
 }
