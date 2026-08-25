@@ -148,6 +148,7 @@ jobs:
     steps:
       - name: Download results
         uses: actions/download-artifact@v8
+        continue-on-error: true
         with:
           name: miesc-security-report
 
