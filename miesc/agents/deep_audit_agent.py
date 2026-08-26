@@ -58,6 +58,8 @@ class DeepAuditConfig:
     enable_exploit_chains: bool = True
     enable_agentic_invariants: bool = False
     agentic_invariants_allow_remote: bool = False
+    enable_deep_reasoning: bool = False
+    deep_reasoning_timeout: int = 1200
     fp_threshold: float = 0.5
     max_workers: int = 4
 
@@ -398,6 +400,20 @@ class DeepAuditAgent(BaseAgent):
 
         all_findings = [f for report in file_reports for f in report.get("findings", [])]
         all_chains = [c for report in file_reports for c in report.get("exploit_chains", [])]
+
+        deep_reasoning: Dict[str, Any] = {"enabled": False}
+        if self.config.enable_deep_reasoning:
+            remaining = self.config.timeout_seconds - (time.monotonic() - directory_start)
+            if remaining > 0:
+                from miesc.adapters.deep_reasoning_adapter import run_deep_reasoning
+
+                deep_reasoning = run_deep_reasoning(
+                    str(dir_path),
+                    all_findings,
+                    timeout=min(int(remaining), self.config.deep_reasoning_timeout),
+                )
+                all_findings.extend(deep_reasoning.get("findings", []))
+
         elapsed = (time.monotonic() - directory_start) * 1000
 
         # Computed from the merged findings, not summed from each file's own
@@ -432,6 +448,7 @@ class DeepAuditAgent(BaseAgent):
             "findings": all_findings,
             "exploit_chains": all_chains,
             "cross_contract_chains": cross_contract_chains,
+            "deep_reasoning": deep_reasoning,
             "summary": aggregated_summary,
             "metadata": {
                 "files_analyzed": len(file_reports),

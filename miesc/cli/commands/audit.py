@@ -2493,6 +2493,16 @@ def audit_batch(
     help="LLM provider: auto (local-first with cloud fallback), ollama, anthropic, openai",
 )
 @click.option("--ci", is_flag=True, help="CI mode: exit 1 if critical/high issues")
+@click.option(
+    "--deep-reasoning",
+    is_flag=True,
+    help=(
+        "Opt-in second-opinion pass over the whole protocol via Claude Code CLI "
+        "(your subscription, not an API key) — reads the repo with Read/Grep/Glob "
+        "to confirm findings and surface cross-file bugs static tools miss. "
+        "Directory targets only. Requires the `claude` CLI on PATH and logged in."
+    ),
+)
 def audit_deep(
     contract: str,
     output: str | None,
@@ -2504,6 +2514,7 @@ def audit_deep(
     no_rag: bool,
     llm_provider: str,
     ci: bool,
+    deep_reasoning: bool,
 ) -> None:
     """Agentic deep audit with iterative analysis and cross-layer correlation.
 
@@ -2521,6 +2532,11 @@ def audit_deep(
     protocol (shared cross-file call/inheritance graph, cross-contract exploit
     chains), not as unrelated single-file reports.
 
+    --deep-reasoning (directory targets only) adds an opt-in second-opinion
+    pass via the Claude Code CLI (your subscription, no API key/DPGA cloud
+    call): it reads the protocol directory with Read/Grep/Glob to confirm or
+    reject existing findings and surface cross-file bugs static tools miss.
+
     \b
     Examples:
         miesc audit deep contract.sol
@@ -2528,6 +2544,7 @@ def audit_deep(
         miesc audit deep contract.sol -t 300
         miesc audit deep contract.sol -o report.json --ci
         miesc audit deep ./src
+        miesc audit deep ./src --deep-reasoning
     """
     print_banner()
 
@@ -2539,9 +2556,13 @@ def audit_deep(
         enable_llm=not no_llm,
         llm_provider=llm_provider,
         enable_rag=not no_rag,
+        enable_deep_reasoning=deep_reasoning,
     )
     profile_config: Dict[str, Any]
     config, profile_config = _apply_deep_profile_config(config, profile)
+
+    if deep_reasoning and not Path(contract).is_dir():
+        warning("--deep-reasoning only runs on a directory target (protocol-level); ignoring it")
 
     agent = DeepAuditAgent(config=config)
 
@@ -2549,7 +2570,8 @@ def audit_deep(
     llm_status = f"{config.llm_provider}" if config.enable_llm else "disabled"
     info(
         f"Timeout: {config.timeout_seconds}s | Max iterations: {config.max_iterations} | "
-        f"LLM: {llm_status} | RAG: {config.enable_rag}"
+        f"LLM: {llm_status} | RAG: {config.enable_rag} | "
+        f"Deep reasoning: {config.enable_deep_reasoning}"
     )
     if profile:
         info(f"Profile: {profile} | {profile_config.get('description', '')}")
@@ -2583,6 +2605,13 @@ def audit_deep(
         )
         for chain in cross_chains[:10]:
             info(f"  {chain['reason']}")
+
+        deep_reasoning_result = result.get("deep_reasoning", {})
+        if deep_reasoning_result.get("enabled"):
+            if deep_reasoning_result.get("error"):
+                warning(f"Deep reasoning pass failed: {deep_reasoning_result['error']}")
+            else:
+                info(f"Deep reasoning pass: {deep_reasoning_result.get('count', 0)} finding(s)")
 
     if RICH_AVAILABLE:
         from rich.panel import Panel

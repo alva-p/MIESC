@@ -45,9 +45,22 @@ def classify_cli_error(output: str, cli_name: str) -> str:
 
 
 def call_claude_cli(
-    prompt: str, *, system_prompt: str = "", model: str = "sonnet", timeout: int = 180
+    prompt: str,
+    *,
+    system_prompt: str = "",
+    model: str = "sonnet",
+    timeout: int = 180,
+    tools: str = "",
+    cwd: str | None = None,
 ) -> str:
-    """Run Claude Code with the user's existing subscription login."""
+    """Run Claude Code with the user's existing subscription login.
+
+    ``tools`` defaults to "" (no tool access — a one-shot text-in/text-out
+    call, the shape used by finding_validator/frontier_llm_adapter). Pass a
+    comma-separated allowlist (e.g. "Read,Grep,Glob") + ``cwd`` to let the CLI
+    read the given directory itself instead of stuffing source into the
+    prompt — see ``call_claude_cli_agentic``.
+    """
     cmd = [
         "claude",
         "-p",
@@ -57,7 +70,7 @@ def call_claude_cli(
         "json",
         "--no-session-persistence",
         "--tools",
-        "",
+        tools,
         "--permission-mode",
         "dontAsk",
         "--strict-mcp-config",
@@ -68,7 +81,9 @@ def call_claude_cli(
         cmd.extend(["--append-system-prompt", system_prompt])
 
     try:
-        proc = subprocess.run(cmd, input=prompt, capture_output=True, text=True, timeout=timeout)
+        proc = subprocess.run(
+            cmd, input=prompt, capture_output=True, text=True, timeout=timeout, cwd=cwd
+        )
     except FileNotFoundError as exc:
         raise RuntimeError(
             "claude CLI not found on PATH. Install: https://claude.com/claude-code"
@@ -89,6 +104,33 @@ def call_claude_cli(
     if wrapper.get("is_error"):
         raise RuntimeError(classify_cli_error(str(wrapper.get("result", "")), "Claude Code"))
     return str(wrapper.get("result", ""))
+
+
+def call_claude_cli_agentic(
+    prompt: str,
+    *,
+    cwd: str,
+    system_prompt: str = "",
+    model: str = "sonnet",
+    timeout: int = 1200,
+    tools: str = "Read,Grep,Glob",
+) -> str:
+    """Run Claude Code as a read-only, tool-using agent over a repo directory.
+
+    Unlike ``call_claude_cli`` (no tools, source pasted into the prompt), this
+    lets the CLI read the directory itself — ``cwd`` is where it runs, so
+    ``Read``/``Grep``/``Glob`` see the real repo. Read-only by design: no
+    ``Bash``/``Write``, no code execution. ``timeout`` defaults to 20 minutes,
+    the measured ceiling for a whole small protocol (see MEJORAS4.md item #1).
+    """
+    return call_claude_cli(
+        prompt,
+        system_prompt=system_prompt,
+        model=model,
+        timeout=timeout,
+        tools=tools,
+        cwd=cwd,
+    )
 
 
 def call_codex_cli(prompt: str, *, model: str | None = None, timeout: int = 180) -> str:

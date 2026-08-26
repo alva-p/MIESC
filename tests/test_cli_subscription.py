@@ -6,6 +6,7 @@ import pytest
 
 from miesc.llm.cli_subscription import (
     call_claude_cli,
+    call_claude_cli_agentic,
     call_codex_cli,
     check_claude_cli,
     check_codex_cli,
@@ -41,6 +42,31 @@ def test_call_claude_cli_returns_result():
     )
     with patch("subprocess.run", return_value=completed):
         assert call_claude_cli("ping") == "OK"
+
+
+def test_call_claude_cli_agentic_enables_tools_and_cwd():
+    completed = subprocess.CompletedProcess(
+        ["claude"], 0, json.dumps({"is_error": False, "result": "[]"}), ""
+    )
+    with patch("subprocess.run", return_value=completed) as mock_run:
+        result = call_claude_cli_agentic("audit this repo", cwd="/tmp/protocol")
+    assert result == "[]"
+    kwargs = mock_run.call_args.kwargs
+    cmd = mock_run.call_args.args[0]
+    assert kwargs["cwd"] == "/tmp/protocol"
+    assert "Read,Grep,Glob" in cmd
+    assert "Bash" not in "".join(cmd)
+
+
+def test_call_claude_cli_default_has_no_tools():
+    completed = subprocess.CompletedProcess(
+        ["claude"], 0, json.dumps({"is_error": False, "result": "OK"}), ""
+    )
+    with patch("subprocess.run", return_value=completed) as mock_run:
+        call_claude_cli("ping")
+    cmd = mock_run.call_args.args[0]
+    tools_index = cmd.index("--tools")
+    assert cmd[tools_index + 1] == ""
 
 
 def test_call_claude_cli_reports_missing_binary():
