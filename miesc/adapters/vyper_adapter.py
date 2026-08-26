@@ -506,6 +506,11 @@ class VyperAnalyzer(AbstractChainAnalyzer):
 
     def _check_missing_access_control(self, contract: AbstractContract) -> List[Dict[str, Any]]:
         findings: List[Dict[str, Any]] = []
+        # Vyper has no modifiers, so `self._check_admin()`-style internal helpers are the
+        # idiomatic way to share an access check across functions — look one call deep
+        # before flagging, or every such contract is 100% false positives.
+        bodies_by_name = {f.name: f.body_source or "" for f in contract.functions}
+        internal_call_re = re.compile(r"self\.(\w+)\s*\(")
         for func in contract.functions:
             if func.visibility != Visibility.EXTERNAL:
                 continue
@@ -515,6 +520,11 @@ class VyperAnalyzer(AbstractChainAnalyzer):
                 continue
             body = func.body_source or ""
             if self.pattern_detector.ACCESS_CHECK_RE.search(body):
+                continue
+            if any(
+                self.pattern_detector.ACCESS_CHECK_RE.search(bodies_by_name.get(callee, ""))
+                for callee in internal_call_re.findall(body)
+            ):
                 continue
             findings.append(
                 self.normalize_finding(
