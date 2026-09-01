@@ -10,6 +10,8 @@ Solodit MCP server (`mcp__solodit__search_findings`/`get_finding`).
 |---|---|---|---|
 | NextGen | Code4rena, 2023-10 | https://github.com/code-423n4/2023-10-nextgen | 18 (H-01..H-05, M-01..M-12) |
 | Y2K Finance | Code4rena, 2022-09 | https://github.com/code-423n4/2022-09-y2k-finance | 27 (H-01..H-09 minus H-07, M-01..M-16 minus M-09*) |
+| Sequence | Code4rena, 2025-10 | https://github.com/code-423n4/2025-10-sequence | 6 (H-01..H-02, M-01..M-04) |
+| Napier | Sherlock, 2024-01 | https://github.com/sherlock-audit/2024-01-napier | 17 (H-1..H-4, M-1..M-13) |
 
 \* `rewards/StakingRewards.sol` (and its 3 findings: M-09, M-10 partially, M-15)
 was removed from this pilot — the `peculiar` adapter hangs indefinitely on it
@@ -123,6 +125,31 @@ findings under both Slither and Aderyn (previously: 0/5 — every file has at
 least one package import, including the otherwise-standalone
 `PegOracle.sol`). `evaluate corpus benchmarks/datasets/solodit-real --layers
 1` now runs Layer 1 on the full 10-contract corpus with no compile failures.
+
+## Fresh blind-validation additions (2026-08-17): Sequence, Napier
+
+Sequence and Napier were added later, for a different purpose than the pilot
+above: they were never seen or referenced while building MIESC's detectors, so
+they answer "can MIESC actually find findings from a real report it has never
+looked at" instead of just measuring recall against a fixed corpus. Sequence
+(wallet/signature protocol) was picked first; Napier (yield-tranching/AMM
+DeFi protocol) was picked second, deliberately, because DeFi-flavored
+contracts are closer to where MIESC's detector set is meant to specialize.
+
+Both were verified the same way: pin a single real commit by reading actual
+file content (not trusting `blob/main` links), confirm the repo is public and
+the buggy code is present, categorize each finding by hand from its real
+title/description, and — critically — manually trace every nominal true
+positive back to the actual detector logic that fired via direct
+`run_layer(7, ...)` calls, instead of trusting a same-file/same-category
+match. See each protocol's `measured_result` field in `ground_truth.json`'s
+`_meta.protocols` for the full trace. Both came back honestly negative: every
+nominal TP on both protocols turned out to be a generic pattern (a STRIDE
+template, a bare `.approve()` regex, a "mint function without access control"
+heuristic) that happened to share a file and category with the real bug, not
+an actual detection of it. Real recall on genuinely unseen findings is closer
+to 0/6 (Sequence) and 0/17 (Napier) than the nominal precision/recall numbers
+suggest.
 
 ## Licensing
 
