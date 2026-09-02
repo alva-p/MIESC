@@ -165,6 +165,30 @@ RISK_PATTERNS = {
         r"\bbridge\b",
         r"\bwormhole\b",
     ],
+    "l2": [
+        r"\bcrossdomainmessenger\b",
+        r"\bxdomainmessagesender\b",
+        r"\bsequencer\b",
+        r"\bl1block\b",
+        r"\bforced\s*inclusion\b",
+        r"\boptimism\b",
+        r"\barbitrum\b",
+        r"\brollup\b",
+        r"\boutputoracle\b",
+        r"\bstatecommitmentchain\b",
+    ],
+    "zk": [
+        r"\bverifyproof\b",
+        r"\bgroth16\b",
+        r"\bplonk\b",
+        r"\bzksnark\b",
+        r"\bzkstark\b",
+        r"\bzkverifier\b",
+        r"\bsnarkjs\b",
+        r"\bcircom\b",
+        r"\bhalo2\b",
+        r"\bgnark\b",
+    ],
 }
 
 
@@ -580,6 +604,8 @@ class DeepAuditAgent(BaseAgent):
             "is_token": scores.get("token", 0) >= 2,
             "is_proxy": scores.get("proxy", 0) >= 1,
             "is_bridge": scores.get("bridge", 0) >= 1,
+            "is_l2": scores.get("l2", 0) >= 1,
+            "is_zk": scores.get("zk", 0) >= 1,
             "has_external_calls": bool(
                 re.search(r"\.call\{|\.delegatecall|\.send\(|\.transfer\(", source_code)
             ),
@@ -759,6 +785,10 @@ class DeepAuditAgent(BaseAgent):
             tools.append("upgradability_checker")
         if profile.get("is_bridge"):
             tools.extend(["crosschain", "bridge_monitor"])
+        if profile.get("is_l2"):
+            tools.append("l2_validator")
+        if profile.get("is_zk"):
+            tools.append("zk_circuit")
         if profile.get("has_external_calls"):
             tools.append("mythril")
         if profile.get("has_selfdestruct"):

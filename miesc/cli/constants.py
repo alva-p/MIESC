@@ -80,12 +80,13 @@ LAYERS: Dict[int, Dict[str, Any]] = {
     8: {
         "name": "Cross-Chain & ZK Security",
         "description": (
-            "Bridge security and zero-knowledge circuit analysis. Same disconnection "
-            "pattern as Layer 9: zk_circuit/l2_validator/circom_analyzer run when this "
-            "layer is invoked directly (`audit layer 8`, `audit full`), but "
-            "DeepAuditAgent._classify_risk_profile has no is_zk/is_circom/is_l2 flag, so "
-            "`audit deep`/`audit smart` never select them proactively regardless of "
-            "contract content."
+            "Bridge security and zero-knowledge circuit analysis. zk_circuit/l2_validator "
+            "are now proactively selected by `audit deep`/`audit smart` via "
+            "DeepAuditAgent._classify_risk_profile's is_zk/is_l2 flags (keyword patterns "
+            "on the Solidity source). circom_analyzer still only runs when this layer is "
+            "invoked directly (`audit layer 8`, `audit full`): detecting it needs a "
+            "sibling .circom file on disk, not a signal in the .sol source text, so there "
+            "is no is_circom flag."
         ),
         "tools": ["crosschain", "zk_circuit", "bridge_monitor", "l2_validator", "circom_analyzer"],
     },
