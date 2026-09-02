@@ -1049,6 +1049,12 @@ def tag_cross_validation(merged: MergedFinding) -> None:
 
     if merged.cross_validated_by_static and merged.cross_validated_by_llm:
         merged.confidence = min(merged.confidence + 0.15, 0.99)
+    elif merged.cross_validated_by_llm and not merged.cross_validated_by_static:
+        # LLM-only, uncorroborated by any static tool: the boost above rewards
+        # agreement, but nothing previously penalized the opposite case, even
+        # though LLM tools hallucinate far more often than static analyzers.
+        # Symmetric penalty to the boost, floored so it never zeroes out.
+        merged.confidence = max(merged.confidence - 0.15, 0.05)
 
 
 # =============================================================================

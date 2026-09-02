@@ -11,6 +11,8 @@ Tests for miesc.core.intelligence — the 6-improvement intelligence engine.
 
 from __future__ import annotations
 
+import pytest
+
 from miesc.core.intelligence import (
     MergedFinding,
     _passes_zero_recall_context_filter,
@@ -512,6 +514,17 @@ class TestCrossValidation:
         tag_cross_validation(m)
         assert m.cross_validated_by_static is False
         assert m.cross_validated_by_llm is True
+        assert m.confidence == pytest.approx(0.45)
+
+    def test_llm_only_penalty_floors_at_0_05(self):
+        m = MergedFinding(
+            canonical_category="access_control",
+            representative={},
+            confirming_tools=["gptscan"],
+            confidence=0.10,
+        )
+        tag_cross_validation(m)
+        assert m.confidence == 0.05
 
 
 # ---------------------------------------------------------------------------
