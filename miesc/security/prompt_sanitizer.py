@@ -191,9 +191,20 @@ def detect_prompt_injection(
     warnings = []
     max_risk = InjectionRiskLevel.NONE
 
+    # Match against both the raw content and a hidden-char-normalized view.
+    # sanitize_code_for_prompt() strips zero-width/bidi/soft-hyphen chars, so an
+    # injection obfuscated with them (e.g. a zero-width space inside
+    # "IGNORE...INSTRUCTIONS") would evade a raw-only regex here while still
+    # landing de-obfuscated in the prompt. Detection must see what sanitization
+    # will actually produce, without losing raw-content signals (e.g. the
+    # "hidden_chars" pattern itself, which only exists in the raw text).
+    normalized = remove_hidden_chars(content)
+
     # Check each injection pattern
     for pattern, name, risk_level in INJECTION_PATTERNS:
-        if re.search(pattern, content):
+        if re.search(pattern, content) or (
+            normalized != content and re.search(pattern, normalized)
+        ):
             patterns_found.append(name)
             warnings.append(f"Detected {name} pattern (risk: {risk_level.value})")
 

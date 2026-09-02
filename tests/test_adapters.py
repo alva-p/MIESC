@@ -210,6 +210,25 @@ class TestMythrilAdapter(TestAdapterBase):
         # Accept bool or any truthy/falsy value
         assert result is not None or result is None or isinstance(result, bool)
 
+    def test_validate_finding_handles_null_swc_id(self, monkeypatch):
+        """A Mythril finding with swc_id=None must not crash .replace()."""
+        from miesc.adapters.mythril_adapter import MythrilAdapter
+
+        adapter = MythrilAdapter()
+        monkeypatch.setattr(
+            adapter,
+            "analyze",
+            lambda *a, **k: {
+                "status": "success",
+                "findings": [{"swc_id": None, "title": "no SWC mapping"}],
+            },
+        )
+
+        confirmed, finding = adapter.validate_finding("contract C {}", "reentrancy", finding_line=1)
+
+        assert confirmed is False
+        assert finding is None
+
 
 class TestSolhintAdapter(TestAdapterBase):
     """Tests for SolhintAdapter."""

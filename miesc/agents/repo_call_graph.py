@@ -28,7 +28,19 @@ from typing import Dict, List, Optional
 
 from miesc.ml.call_graph import CallEdge, CallGraph, CallGraphBuilder
 
+# ``grep_repo`` compiles an LLM/injection-supplied pattern. The ``regex`` module's
+# per-search timeout bounds catastrophic backtracking; stdlib ``re`` cannot be
+# interrupted mid-match, so untrusted patterns are never handed to it — without
+# ``regex`` installed we skip regex entirely and substring-search instead.
+try:  # pragma: no cover - exercised via presence/absence in the environment
+    import regex as _timeout_regex
+except ImportError:  # pragma: no cover
+    _timeout_regex = None
+
 logger = logging.getLogger(__name__)
+
+_MAX_GREP_PATTERN_CHARS = 200
+_GREP_REGEX_TIMEOUT_S = 0.5
 
 # Same skip rules the benchmark harness uses (evmbench_official_detect.py:34) so
 # we audit implementation code, not tests/libs/mocks/vendored deps.
@@ -228,14 +240,18 @@ class RepoCallGraph:
             needle = (pattern or "").strip()
             if not needle:
                 return "no matches: empty pattern"
+            # Cap pattern length — a real grep pattern is short; an over-long one
+            # is a mistake or a ReDoS attempt.
+            needle = needle[:_MAX_GREP_PATTERN_CHARS]
 
             matcher = None
             # Only bother with regex if it carries regex metacharacters — a plain
-            # identifier is cheaper and safer as a substring search.
-            if any(ch in needle for ch in r".^$*+?()[]{}|\\"):
+            # identifier is cheaper and safer as a substring search. Compile the
+            # untrusted pattern ONLY with the ``regex`` module (per-search timeout).
+            if _timeout_regex is not None and any(ch in needle for ch in r".^$*+?()[]{}|\\"):
                 try:
-                    matcher = re.compile(needle, re.IGNORECASE)
-                except re.error:
+                    matcher = _timeout_regex.compile(needle, _timeout_regex.IGNORECASE)
+                except _timeout_regex.error:
                     matcher = None
             needle_lower = needle.lower()
 
@@ -246,11 +262,14 @@ class RepoCallGraph:
                     break
                 source = self._contracts[name].source
                 for lineno, text in enumerate(source.splitlines(), start=1):
-                    hit = (
-                        matcher.search(text)
-                        if matcher is not None
-                        else needle_lower in text.lower()
-                    )
+                    if matcher is not None:
+                        try:
+                            hit = matcher.search(text, timeout=_GREP_REGEX_TIMEOUT_S) is not None
+                        except TimeoutError:
+                            matcher = None
+                            hit = needle_lower in text.lower()
+                    else:
+                        hit = needle_lower in text.lower()
                     if not hit:
                         continue
                     out.append(f"{name}:{lineno}: {text.strip()}")

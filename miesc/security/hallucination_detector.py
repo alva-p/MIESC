@@ -34,6 +34,37 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 logger = logging.getLogger(__name__)
 
+_CONFIDENCE_LABELS = {
+    "critical": 0.95,
+    "high": 0.85,
+    "medium": 0.6,
+    "low": 0.3,
+    "info": 0.1,
+    "informational": 0.1,
+}
+
+
+def _coerce_confidence(value: Any, default: float) -> float:
+    """Coerce an LLM-reported confidence into a float in [0, 1].
+
+    LLM findings routinely report confidence as a label ("high") or a numeric
+    string ("0.8") rather than a float — ``float(...)`` on those raises
+    ValueError and aborts the whole validation run. Numbers are clamped,
+    numeric strings are parsed, known labels are mapped, and anything else
+    falls back to ``default``.
+    """
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return max(0.0, min(1.0, float(value)))
+    if isinstance(value, str):
+        text = value.strip().lower()
+        try:
+            return max(0.0, min(1.0, float(text)))
+        except ValueError:
+            pass
+        if text in _CONFIDENCE_LABELS:
+            return _CONFIDENCE_LABELS[text]
+    return default
+
 
 class ValidationStatus(Enum):
     """Status of hallucination validation."""
@@ -227,7 +258,7 @@ class HallucinationDetector:
     ) -> ValidationResult:
         """Validate a single finding."""
         vuln_type = self._normalize_type(finding.get("type", "") or finding.get("category", ""))
-        original_confidence = float(finding.get("confidence", 0.75))
+        original_confidence = _coerce_confidence(finding.get("confidence"), 0.75)
         reasons = []
         sources = []
 
@@ -377,7 +408,7 @@ class HallucinationDetector:
         anomalies = []
 
         # Check for suspiciously high confidence with vague description
-        confidence = float(finding.get("confidence", 0.75))
+        confidence = _coerce_confidence(finding.get("confidence"), 0.75)
         description = str(finding.get("description", ""))
 
         if confidence > 0.9 and len(description) < 50:
@@ -506,7 +537,7 @@ def cross_validate_finding(
         if results
         else ValidationResult(
             status=ValidationStatus.UNVALIDATED,
-            original_confidence=float(finding.get("confidence", 0.5)),
+            original_confidence=_coerce_confidence(finding.get("confidence"), 0.5),
             adjusted_confidence=0.3,
             reasons=["Validation failed"],
         )
