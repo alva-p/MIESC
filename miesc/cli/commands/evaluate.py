@@ -82,14 +82,12 @@ CATEGORY_ALIASES = {
         "reentrancy",
         "reentrancy-eth",
         "reentrancy-no-eth",
-        "reentrancy-benign",
-        "reentrancy-events",
+        # reentrancy-benign / reentrancy-events excluded on purpose - see
+        # _NOISE_CHECK_TYPES above, Slither's own no-security-impact checks.
         "reentrancy-unlimited-gas",
         "reentrant",
         "reentrancy_eth",
         "reentrancy_no_eth",
-        "reentrancy_benign",
-        "reentrancy_events",
         "reentrancy_unlimited_gas",
         "controlled-delegatecall",
         "delegatecall-loop",
@@ -170,7 +168,13 @@ CATEGORY_ALIASES = {
         "block-timestamp",
         "timestamp",
     },
-    "other": {"other", "unknown", "unclassified", "uninitialized_storage_pointer"},
+    # "unknown" deliberately excluded: it's the failure-sentinel several
+    # adapters (llamaaudit, oyente, peculiar, ...) default "type"/"category"
+    # to when LLM output has neither - a parsing failure with no real
+    # content (empty description, generic title), not a genuine "other"
+    # vulnerability. Aliasing it here silently promoted pure noise into a
+    # matchable category with zero ground-truth support in solodit-real.
+    "other": {"other", "unclassified", "uninitialized_storage_pointer"},
     # MEJORAS2.md #2 — see MODERN_CATEGORIES above.
     "business_logic": {
         "business_logic",
@@ -299,6 +303,16 @@ _NOISE_CHECK_TYPES = {
     "immutable-states",
     "push-zero",
     "experimental",
+    # Slither's own docs classify these as informational/no-security-impact,
+    # distinct from reentrancy-eth (the real, exploitable one): an event
+    # emitted after an external call, or a state write with no read-before-
+    # call path an attacker can exploit. Found via solodit-real's expanded
+    # corpus - one file (VaultFactory.sol) alone contributed 5 of these as
+    # "reentrancy" false positives with zero real reentrancy in its ground
+    # truth. The bare "reentrancy" alias's substring match would otherwise
+    # still catch these even if just removed from CATEGORY_ALIASES below.
+    "reentrancy-benign",
+    "reentrancy-events",
 }
 
 
