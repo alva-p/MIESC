@@ -28,16 +28,16 @@ def _etherscan_response(result: dict, status: str = "1") -> MagicMock:
 class TestResolveApiKey:
     def test_explicit_key_wins(self, monkeypatch):
         monkeypatch.setenv("ETHERSCAN_API_KEY", "env-key")
-        assert _resolve_api_key(ChainType.ETHEREUM, "explicit-key") == "explicit-key"
+        assert _resolve_api_key("explicit-key") == "explicit-key"
 
     def test_falls_back_to_env_var(self, monkeypatch):
         monkeypatch.setenv("ETHERSCAN_API_KEY", "env-key")
-        assert _resolve_api_key(ChainType.ETHEREUM, None) == "env-key"
+        assert _resolve_api_key(None) == "env-key"
 
     def test_raises_when_neither_present(self, monkeypatch):
         monkeypatch.delenv("ETHERSCAN_API_KEY", raising=False)
         with pytest.raises(BlockExplorerError, match="ETHERSCAN_API_KEY"):
-            _resolve_api_key(ChainType.ETHEREUM, None)
+            _resolve_api_key(None)
 
 
 class TestParseSourcePayload:
@@ -64,7 +64,7 @@ class TestParseSourcePayload:
 
 class TestFetchVerifiedSource:
     def test_unsupported_chain_raises(self):
-        with pytest.raises(BlockExplorerError, match="No block explorer configured"):
+        with pytest.raises(BlockExplorerError, match="No chain id configured"):
             fetch_verified_source("0xabc", chain=ChainType.SOLANA, api_key="k")
 
     @patch("miesc.core.block_explorer.requests.get")
@@ -104,6 +104,7 @@ class TestFetchVerifiedSource:
         fetch_verified_source("0xabc", chain=ChainType.ETHEREUM, api_key="k")
         _, kwargs = mock_get.call_args
         assert kwargs["params"] == {
+            "chainid": 1,
             "module": "contract",
             "action": "getsourcecode",
             "address": "0xabc",

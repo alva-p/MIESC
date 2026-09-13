@@ -2706,8 +2706,8 @@ def audit_deep(
 @click.option(
     "--api-key",
     help=(
-        "Block explorer API key. Falls back to the chain's own env var "
-        "(e.g. ETHERSCAN_API_KEY for ethereum) - never bundled, opt-in only."
+        "Etherscan API key (V2: one key works for every --chain via chainid). "
+        "Falls back to the ETHERSCAN_API_KEY env var - never bundled, opt-in only."
     ),
 )
 @click.option("--output", "-o", type=click.Path(), help="Output file path")

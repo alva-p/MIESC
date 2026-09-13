@@ -1,9 +1,16 @@
-"""Fetch verified contract source from Etherscan-compatible block explorers.
+"""Fetch verified contract source via the Etherscan V2 unified API.
 
 Opt-in only: never called unless the user explicitly runs `miesc audit address`.
 Requires the user's own API key (env var or --api-key) - never bundled, same
 policy as every other third-party network call in MIESC (see MEJORAS docs on
 Solodit MCP / frontier LLM gating).
+
+Etherscan retired its per-chain domains (api.polygonscan.com, api.arbiscan.io,
+...) each with their own key, in favor of one API (api.etherscan.io/v2/api)
+selecting the chain via `chainid`, with a single key valid across all of them
+(https://docs.etherscan.io/v2-migration) - found by actually running this
+against a real mainnet address, not by trusting the old per-chain-domain
+convention other Etherscan-clone docs still describe.
 
 Solidity only for now: block explorers verify Vyper far less consistently and
 several return a different payload shape for it - out of scope for this first
@@ -22,23 +29,18 @@ import requests
 
 from miesc.core.chain_abstraction import ChainType
 
-EXPLORER_BASE_URL: Dict[ChainType, str] = {
-    ChainType.ETHEREUM: "https://api.etherscan.io/api",
-    ChainType.POLYGON: "https://api.polygonscan.com/api",
-    ChainType.ARBITRUM: "https://api.arbiscan.io/api",
-    ChainType.OPTIMISM: "https://api-optimistic.etherscan.io/api",
-    ChainType.BSC: "https://api.bscscan.com/api",
-    ChainType.AVALANCHE: "https://api.snowtrace.io/api",
+V2_BASE_URL = "https://api.etherscan.io/v2/api"
+
+CHAIN_IDS: Dict[ChainType, int] = {
+    ChainType.ETHEREUM: 1,
+    ChainType.POLYGON: 137,
+    ChainType.ARBITRUM: 42161,
+    ChainType.OPTIMISM: 10,
+    ChainType.BSC: 56,
+    ChainType.AVALANCHE: 43114,
 }
 
-EXPLORER_API_KEY_ENV: Dict[ChainType, str] = {
-    ChainType.ETHEREUM: "ETHERSCAN_API_KEY",
-    ChainType.POLYGON: "POLYGONSCAN_API_KEY",
-    ChainType.ARBITRUM: "ARBISCAN_API_KEY",
-    ChainType.OPTIMISM: "OPTIMISTIC_ETHERSCAN_API_KEY",
-    ChainType.BSC: "BSCSCAN_API_KEY",
-    ChainType.AVALANCHE: "SNOWTRACE_API_KEY",
-}
+API_KEY_ENV = "ETHERSCAN_API_KEY"
 
 
 class NotVerifiedError(Exception):
@@ -58,13 +60,12 @@ class FetchedContract:
     files: Dict[str, str]  # relative path -> source text
 
 
-def _resolve_api_key(chain: ChainType, api_key: Optional[str]) -> str:
+def _resolve_api_key(api_key: Optional[str]) -> str:
     if api_key:
         return api_key
-    env_var = EXPLORER_API_KEY_ENV.get(chain)
-    key = os.environ.get(env_var) if env_var else None
+    key = os.environ.get(API_KEY_ENV)
     if not key:
-        raise BlockExplorerError(f"No API key for {chain.value}. Pass --api-key or set {env_var}.")
+        raise BlockExplorerError(f"No API key. Pass --api-key or set {API_KEY_ENV}.")
     return key
 
 
@@ -94,21 +95,22 @@ def fetch_verified_source(
     api_key: Optional[str] = None,
     timeout: int = 20,
 ) -> FetchedContract:
-    """Fetch an address's verified Solidity source via its block explorer's
+    """Fetch an address's verified Solidity source via Etherscan's V2
     `getsourcecode` API. Raises NotVerifiedError if the explorer has no
     verified source, BlockExplorerError for any other failure (bad key,
     rate limit, unsupported chain, network error)."""
-    if chain not in EXPLORER_BASE_URL:
-        supported = ", ".join(c.value for c in EXPLORER_BASE_URL)
+    if chain not in CHAIN_IDS:
+        supported = ", ".join(c.value for c in CHAIN_IDS)
         raise BlockExplorerError(
-            f"No block explorer configured for {chain.value}. Supported: {supported}."
+            f"No chain id configured for {chain.value}. Supported: {supported}."
         )
 
-    resolved_key = _resolve_api_key(chain, api_key)
+    resolved_key = _resolve_api_key(api_key)
     try:
         resp = requests.get(
-            EXPLORER_BASE_URL[chain],
+            V2_BASE_URL,
             params={
+                "chainid": CHAIN_IDS[chain],
                 "module": "contract",
                 "action": "getsourcecode",
                 "address": address,
