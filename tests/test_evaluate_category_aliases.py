@@ -140,6 +140,45 @@ class TestNoiseCheckTypesNeverMatchByKeyword:
         )
 
 
+class TestUnknownIsNotOther:
+    """solodit-real has zero ground-truth findings categorized "other" -
+    several LLM adapters (llamaaudit, oyente, peculiar, ...) default
+    type/category to the literal string "unknown" when parsing fails, with
+    no title/description content to fall back on. "unknown" must not
+    resolve to "other" - that would count pure parsing-failure noise as a
+    matched category."""
+
+    def test_unknown_type_does_not_match_other(self):
+        assert _normalize_category("unknown") is None
+
+    def test_genuine_other_alias_still_matches(self):
+        assert _normalize_category("other") == "other"
+        assert _normalize_category("unclassified") == "other"
+
+
+class TestSlitherInformationalReentrancyIsNotReentrancy:
+    """Slither's own docs classify reentrancy-benign/reentrancy-events as
+    informational, no-security-impact patterns (event emitted after an
+    external call, or a state write with no exploitable read-before-call
+    path) - distinct from reentrancy-eth, the real exploitable one. Found
+    on solodit-real's expanded corpus: VaultFactory.sol alone contributed
+    5 of these as "reentrancy" false positives with zero real reentrancy
+    in its ground truth (10.0% precision, 1 TP / 9 FP overall)."""
+
+    def test_reentrancy_benign_is_not_a_match(self):
+        assert _normalize_category("reentrancy-benign") is None
+        assert _normalize_category("reentrancy_benign") is None
+
+    def test_reentrancy_events_is_not_a_match(self):
+        assert _normalize_category("reentrancy-events") is None
+        assert _normalize_category("reentrancy_events") is None
+
+    def test_genuine_reentrancy_types_still_match(self):
+        assert _normalize_category("reentrancy-eth") == "reentrancy"
+        assert _normalize_category("reentrancy-no-eth") == "reentrancy"
+        assert _normalize_category("reentrancy") == "reentrancy"
+
+
 class TestGroundTruthJsonManifest:
     """MEJORAS2.md #1 — Solodit-sourced per-finding ground truth, an
     alternative to SmartBugs-curated's one-category-per-folder inference."""
