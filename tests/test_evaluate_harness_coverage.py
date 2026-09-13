@@ -177,6 +177,34 @@ class TestEvaluateContract:
         assert result["aggregate"]["findings_count"] == 1
         assert "layer_1" in result["timing"]
 
+    def test_category_only_finding_still_counts(self, corpus):
+        # smartllm/gptscan (and ~26 other adapters) key their per-finding
+        # taxonomy as "category", never "type" - a finding missing "type"
+        # entirely must not be dropped just because its title/description
+        # don't happen to contain a matching keyword.
+        contract = corpus / "reentrancy" / "vuln.sol"
+
+        def _fake(layer_num, contract_path, timeout):
+            return [
+                {
+                    "tool": "smartllm",
+                    "status": "ok",
+                    "findings": [{"category": "reentrancy", "title": "LLM-detected issue"}],
+                }
+            ]
+
+        with patch("miesc.cli.commands.evaluate.run_layer", side_effect=_fake):
+            result = _evaluate_contract(
+                contract,
+                {"reentrancy"},
+                [1],
+                timeout=1,
+                skip_unavailable=True,
+                use_intelligence=False,
+            )
+        assert result["match"]["hit"] is True
+        assert "reentrancy" in result["match"]["tp"]
+
     def test_false_negative_when_nothing_detected(self, corpus):
         contract = corpus / "reentrancy" / "vuln.sol"
         with patch(
