@@ -2693,3 +2693,97 @@ def audit_deep(
         if critical > 0 or high > 0:
             error(f"CI check failed: {critical} critical, {high} high issues")
             sys.exit(1)
+
+
+@audit.command("address")
+@click.argument("address")
+@click.option(
+    "--chain",
+    type=click.Choice(["ethereum", "polygon", "arbitrum", "optimism", "bsc", "avalanche"]),
+    default="ethereum",
+    help="Chain the address lives on (default: ethereum)",
+)
+@click.option(
+    "--api-key",
+    help=(
+        "Etherscan API key (V2: one key works for every --chain via chainid). "
+        "Falls back to the ETHERSCAN_API_KEY env var - never bundled, opt-in only."
+    ),
+)
+@click.option("--output", "-o", type=click.Path(), help="Output file path")
+@click.option("--timeout", "-t", type=int, default=600, help="Max total audit time in seconds")
+@click.option(
+    "--deep-reasoning",
+    is_flag=True,
+    help="Also run the --deep-reasoning second-opinion pass (see `miesc audit deep --help`)",
+)
+@click.option("--ci", is_flag=True, help="CI mode: exit 1 if critical/high issues")
+@click.pass_context
+def audit_address(
+    ctx: click.Context,
+    address: str,
+    chain: str,
+    api_key: str | None,
+    output: str | None,
+    timeout: int,
+    deep_reasoning: bool,
+    ci: bool,
+) -> None:
+    """Audit a deployed contract by address - no local .sol file needed.
+
+    Fetches the address's verified source from its chain's block explorer
+    (Etherscan-compatible API, requires your own API key), then runs the
+    same agentic deep audit as `miesc audit deep` against it.
+
+    Solidity only for now: block explorers verify Vyper far less
+    consistently. An address with no verified source (or on an unsupported
+    chain) fails clearly instead of silently producing an empty report.
+
+    \b
+    Examples:
+        miesc audit address 0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984
+        miesc audit address 0x... --chain arbitrum --deep-reasoning
+    """
+    print_banner()
+
+    from miesc.core.block_explorer import (
+        BlockExplorerError,
+        NotVerifiedError,
+        fetch_verified_source,
+        write_contract_to_dir,
+    )
+    from miesc.core.chain_abstraction import ChainType
+
+    info(f"Fetching verified source for {address} on {chain}...")
+    try:
+        contract = fetch_verified_source(address, chain=ChainType(chain), api_key=api_key)
+    except NotVerifiedError as e:
+        error(str(e))
+        sys.exit(1)
+    except BlockExplorerError as e:
+        error(f"Could not fetch source: {e}")
+        sys.exit(1)
+
+    success(
+        f"Fetched {contract.contract_name} ({len(contract.files)} file(s), solc {contract.compiler_version})"
+    )
+
+    import tempfile
+
+    with tempfile.TemporaryDirectory(prefix="miesc_address_") as tmp:
+        target_dir = write_contract_to_dir(contract, Path(tmp) / contract.contract_name)
+        ctx.invoke(
+            audit_deep,
+            contract=str(target_dir),
+            output=output,
+            fmt="json",
+            timeout=timeout,
+            max_iterations=5,
+            profile=None,
+            no_llm=False,
+            no_rag=False,
+            llm_provider="auto",
+            ci=ci,
+            deep_reasoning=deep_reasoning,
+            deep_reasoning_timeout=1200,
+        )
