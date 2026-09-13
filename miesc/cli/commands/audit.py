@@ -2503,6 +2503,17 @@ def audit_batch(
         "Directory targets only. Requires the `claude` CLI on PATH and logged in."
     ),
 )
+@click.option(
+    "--deep-reasoning-timeout",
+    type=int,
+    default=1200,
+    help=(
+        "Max seconds for the --deep-reasoning pass itself (default 1200). "
+        "Also capped by whatever remains of --timeout after per-file analysis - "
+        "raise both together for large protocols (dozens of files need more "
+        "than a single small contract does)."
+    ),
+)
 def audit_deep(
     contract: str,
     output: str | None,
@@ -2515,6 +2526,7 @@ def audit_deep(
     llm_provider: str,
     ci: bool,
     deep_reasoning: bool,
+    deep_reasoning_timeout: int,
 ) -> None:
     """Agentic deep audit with iterative analysis and cross-layer correlation.
 
@@ -2557,6 +2569,7 @@ def audit_deep(
         llm_provider=llm_provider,
         enable_rag=not no_rag,
         enable_deep_reasoning=deep_reasoning,
+        deep_reasoning_timeout=deep_reasoning_timeout,
     )
     profile_config: Dict[str, Any]
     config, profile_config = _apply_deep_profile_config(config, profile)
