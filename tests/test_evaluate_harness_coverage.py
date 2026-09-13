@@ -189,9 +189,7 @@ class TestEvaluateContract:
                 {
                     "tool": "smartllm",
                     "status": "ok",
-                    "findings": [
-                        {"category": "reentrancy", "title": "LLM-detected issue"}
-                    ],
+                    "findings": [{"category": "reentrancy", "title": "LLM-detected issue"}],
                 }
             ]
 
