@@ -507,7 +507,7 @@ def _evaluate_contract(
         layer_detected = set()
         for f in layer_findings:
             cat = _normalize_category(
-                f.get("type", "") or f.get("title", ""),
+                f.get("type", "") or f.get("category", "") or f.get("title", ""),
                 title=f.get("title", ""),
                 description=f.get("description", f.get("message", "")),
             )
@@ -591,7 +591,7 @@ def _evaluate_contract(
                     if f.get("fp_suppressed"):
                         continue
                     cat = _normalize_category(
-                        f.get("type", "") or f.get("title", ""),
+                        f.get("type", "") or f.get("category", "") or f.get("title", ""),
                         title=f.get("title", ""),
                         description=f.get("description", f.get("message", "")),
                     )
@@ -715,7 +715,7 @@ def _evaluate_contract(
         if f.get("_source_tool") == "llmbugscanner":
             continue
         cat = _normalize_category(
-            f.get("type", "") or f.get("title", ""),
+            f.get("type", "") or f.get("category", "") or f.get("title", ""),
             title=f.get("title", ""),
             description=f.get("description", f.get("message", "")),
         )
