@@ -81,3 +81,60 @@ def test_deep_audit_cli_applies_profile_to_agent_config(monkeypatch, tmp_path):
     assert seen["config"].agentic_invariants_allow_remote is False
     assert seen["config"].enable_llm is False
     assert seen["config"].enable_rag is False
+
+
+def test_deep_reasoning_timeout_flag_reaches_config(monkeypatch, tmp_path):
+    # Before this flag existed, deep_reasoning_timeout was hardcoded at 1200s
+    # regardless of protocol size (1 file vs. dozens) - see MEJORAS4.md #3.
+    contract = tmp_path / "Vault.sol"
+    contract.write_text("pragma solidity ^0.8.20; contract Vault {}")
+    seen = {}
+
+    class FakeAgent:
+        def __init__(self, config):
+            seen["config"] = config
+
+        def analyze(self, contract_path):
+            return {
+                "summary": {"total": 0},
+                "phases": {"reconnaissance": {"risk_profile": {"primary": "general"}}},
+                "findings": [],
+                "exploit_chains": [],
+                "narrative": "",
+            }
+
+    monkeypatch.setattr("miesc.agents.deep_audit_agent.DeepAuditAgent", FakeAgent)
+
+    result = CliRunner().invoke(
+        audit_deep,
+        [str(contract), "--no-llm", "--no-rag", "--deep-reasoning-timeout", "3000"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert seen["config"].deep_reasoning_timeout == 3000
+
+
+def test_deep_reasoning_timeout_defaults_to_1200(monkeypatch, tmp_path):
+    contract = tmp_path / "Vault.sol"
+    contract.write_text("pragma solidity ^0.8.20; contract Vault {}")
+    seen = {}
+
+    class FakeAgent:
+        def __init__(self, config):
+            seen["config"] = config
+
+        def analyze(self, contract_path):
+            return {
+                "summary": {"total": 0},
+                "phases": {"reconnaissance": {"risk_profile": {"primary": "general"}}},
+                "findings": [],
+                "exploit_chains": [],
+                "narrative": "",
+            }
+
+    monkeypatch.setattr("miesc.agents.deep_audit_agent.DeepAuditAgent", FakeAgent)
+
+    result = CliRunner().invoke(audit_deep, [str(contract), "--no-llm", "--no-rag"])
+
+    assert result.exit_code == 0, result.output
+    assert seen["config"].deep_reasoning_timeout == 1200
