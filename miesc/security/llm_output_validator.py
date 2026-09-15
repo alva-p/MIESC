@@ -493,10 +493,10 @@ def safe_parse_llm_json(
             )
 
         # Lenient mode: surface a best-effort partial object for inspection, but the
-        # result is NOT valid. model_construct bypasses every validator, type check
-        # and sanitizer, so returning is_valid=True here would fail OPEN — malformed
+        # result is NOT valid. ``model_construct`` bypasses every validator, type check
+        # and sanitizer, so returning ``is_valid=True`` here would fail OPEN — malformed
         # or malicious LLM output would flow downstream as if it had been validated.
-        # Callers MUST check is_valid before trusting data.
+        # Callers MUST check ``is_valid`` before trusting ``data``.
         logger.warning(f"Validation errors (lenient mode): {error_messages}")
         warnings.extend(error_messages)
 
