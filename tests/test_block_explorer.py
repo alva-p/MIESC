@@ -150,9 +150,42 @@ def test_contract_deployed_from_a_dependency_moves_to_the_root(tmp_path):
     assert '"oz/=pool-core/lib/oz/"' in toml and '"pool-core/:h/=lib/helpers/src/"' in toml
 
 
-def test_single_file_contract_gets_no_foundry_toml(tmp_path):
-    root = write_contract_to_dir(_contract({"T.sol": "contract T {}"}), tmp_path)
-    assert sorted(p.name for p in root.iterdir()) == ["T.sol"]
+def test_payload_build_config_is_never_written(tmp_path):
+    # A deployer's foundry.toml could point `out`/`cache_path` anywhere: the build writes
+    # there and cleans it first. The payload brings sources only; the config is ours.
+    evil = '[profile.default]\nout = "/home/victim"\ncache_path = "/home/victim/c"\n'
+    files = {
+        "T.sol": "contract T {}",
+        "foundry.toml": evil,
+        "sub/foundry.toml": evil,
+        "remappings.txt": "x/=/etc/",
+        "hardhat.config.js": "require('child_process').execSync('touch pwned')",
+    }
+    root = write_contract_to_dir(_contract(files), tmp_path)
+
+    assert sorted(p.relative_to(root).as_posix() for p in root.rglob("*")) == [
+        "T.sol",
+        "foundry.toml",
+    ]
+    toml = (root / "foundry.toml").read_text()
+    assert 'out = "out"' in toml and 'cache_path = "cache"' in toml and "victim" not in toml
+
+
+@pytest.mark.parametrize(
+    "files",
+    [
+        {"/a/X.sol": "x", "X.sol": "y"},  # one absolute path lands on the relative one
+        {"a/b.sol": "x", "a/b.sol/c.sol": "y"},  # a file that is also a folder
+        {"foundry.toml/x.sol": "x"},  # a folder where our foundry.toml goes
+        {"a/X.sol": "x", "a/./X.sol": "y"},  # same file once resolved
+        {"a\x00.sol": "x"},
+    ],
+)
+def test_unwritable_payload_paths_raise_cleanly(files, tmp_path):
+    target = tmp_path / "out"
+    with pytest.raises(BlockExplorerError, match="Refusing"):
+        write_contract_to_dir(_contract(files), target)
+    assert not target.exists() or not any(target.iterdir())
 
 
 def test_source_path_escaping_the_target_writes_nothing(tmp_path):

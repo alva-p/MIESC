@@ -49,7 +49,8 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   pipeline on every `.sol` file (skipping `lib/`, `node_modules/`, `test/`, `script/` and build
   output), with `--timeout` as the budget for the whole directory. Each file's run also reports
   what it imports, so the merged findings and exploit chains are deduplicated (Y2K Finance
-  233 -> 122, NextGen 166 -> 121, USDC 265 -> 118) and the summary is counted from them.
+  233 -> 120, NextGen 170 -> 132, USDC 264 -> 99, each with an empty cache) and the summary is
+  counted from them.
   Pattern-detector findings now name the analyzed file instead of a `contract.sol` placeholder.
   The report adds `protocol.contracts` (file and bases of each contract, across files) and
   `protocol.calls`, from a regex graph (`miesc/ml/protocol_graph.py`): which function of another
@@ -62,9 +63,11 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   10 directories up instead of 5 (Aave keeps sources 6 below its root).
   `audit address <0x…> [--chain]` fetches the verified Solidity source through Etherscan V2 with
   the user's own key (`--api-key` or `ETHERSCAN_API_KEY`), writes it to a temporary directory
-  (paths escaping it are rejected; the deployer's absolute paths lose their common prefix;
-  `@scope/` packages go under `lib/` with their remapping, plus the contract's own remappings, in
-  a `foundry.toml`; a contract deployed from a `lib/` dependency moves to the root, since the
+  (only its `.sol` files: the payload's own build config, which could point the build output
+  outside it, is never written; paths escaping it or clashing are rejected; the deployer's
+  absolute paths lose their common prefix; `@scope/` packages go under `lib/` with their
+  remapping, plus the contract's own remappings, in a `foundry.toml` that is always generated,
+  with `out` and `cache` inside the directory; a contract deployed from a `lib/` dependency moves to the root, since the
   tools leave out findings under `lib/`) so Slither and Aderyn compile against the deployed
   dependency versions instead of installing the latest ones, then runs `audit deep` on it.
   Checked live on UNI (1 file, solc 0.5.16), the USDC `FiatTokenV2_2` implementation (19 own

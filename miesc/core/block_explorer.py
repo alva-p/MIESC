@@ -137,6 +137,9 @@ def write_contract_to_dir(contract: FetchedContract, target_dir: Path) -> Path:
     A package path (`@openzeppelin/...`) goes under lib/ like a Foundry dependency, and
     a foundry.toml carries its remapping plus the contract's own, so the tools compile
     against these exact sources instead of installing the latest version of each one.
+    The payload is the deployer's: only its `.sol` files are written, never its build
+    config (a foundry.toml of theirs would choose where the build writes), and the
+    foundry.toml is always ours, with `out` and `cache` inside `target_dir`.
     """
     root = target_dir.resolve()
     remappings = list(contract.remappings)
@@ -144,6 +147,8 @@ def write_contract_to_dir(contract: FetchedContract, target_dir: Path) -> Path:
     prefix = posixpath.commonpath([posixpath.dirname(p) for p in absolute]) if absolute else "/"
     sources = {}
     for rel_path, content in contract.files.items():
+        if not rel_path.endswith(".sol"):
+            continue
         if rel_path.startswith("/"):
             rel_path = posixpath.relpath(rel_path, prefix)
         if rel_path.startswith("@"):
@@ -151,6 +156,8 @@ def write_contract_to_dir(contract: FetchedContract, target_dir: Path) -> Path:
             rel_path = f"lib/{rel_path}"
             if not any(r.startswith(f"{scope}/") for r in remappings):
                 remappings.append(f"{scope}/=lib/{scope}/")
+        if rel_path in sources:
+            raise BlockExplorerError(f"Refusing clashing source paths: {rel_path!r}")
         sources[rel_path] = content
 
     # The deployed contract can itself be a dependency of the deployer's repo (Aave's
@@ -162,31 +169,40 @@ def write_contract_to_dir(contract: FetchedContract, target_dir: Path) -> Path:
     if "lib" in dirs[:-1]:
         last_lib = max(i for i, d in enumerate(dirs[:-1]) if d == "lib")
         package, moved = "/".join(dirs[: last_lib + 2]) + "/", dirs[last_lib + 1] + "/"
-        sources = {
+        hoisted = {
             moved + p[len(package) :] if p.startswith(package) else p: src
             for p, src in sources.items()
         }
+        if len(hoisted) < len(sources):
+            raise BlockExplorerError(f"Refusing clashing source paths under {moved!r}")
+        sources = hoisted
         # `context:prefix=target`: the package can be the context or the target.
         remappings = [
             re.sub(rf"(^|=){re.escape(package)}", rf"\g<1>{moved}", r) for r in remappings
         ]
 
-    files = {}
+    toml = root / "foundry.toml"
+    files: Dict[Path, str] = {}
     for rel_path, content in sources.items():
-        dest = (root / rel_path).resolve()
+        try:
+            dest = (root / rel_path).resolve()
+        except ValueError as e:  # a NUL byte in the path
+            raise BlockExplorerError(f"Refusing source path {rel_path!r}: {e}") from e
         if not dest.is_relative_to(root):
             raise BlockExplorerError(f"Refusing source path outside the target: {rel_path!r}")
         files[dest] = content
+    # Two paths that end up the same file (after the prefix, lib/ or the hoist), or a
+    # file that is also another one's folder, would overwrite or fail halfway.
+    folders = {d for dest in files for d in dest.parents}
+    if len(files) < len(sources) or toml in folders or folders & files.keys():
+        raise BlockExplorerError("Refusing source paths that clash with each other or foundry.toml")
     for dest, content in files.items():
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_text(content, encoding="utf-8")
 
-    # Plain or relative imports need no foundry.toml: the tools' usual single-file path.
-    if remappings:
-        (root / "foundry.toml").write_text(
-            '[profile.default]\nsrc = "."\nlibs = []\nremappings = '
-            + json.dumps(remappings)
-            + "\n",
-            encoding="utf-8",
-        )
+    toml.write_text(
+        '[profile.default]\nsrc = "."\nout = "out"\ncache_path = "cache"\nlibs = []\n'
+        + f"remappings = {json.dumps(remappings)}\n",
+        encoding="utf-8",
+    )
     return root
